@@ -1,3 +1,10 @@
+---
+$category@: layout
+formats:
+  - websites
+teaser:
+  text: Provides a collection of preset visual effects, such as parallax.
+---
 <!---
 Copyright 2018 The AMP HTML Authors. All Rights Reserved.
 
@@ -14,26 +21,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# <a name="amp-fx-collection"></a> `amp-fx-collection`
+# amp-fx-collection
+Provides a collection of preset visual effects, such as parallax.
 
 [TOC]
 
 <table>
   <tr>
-    <td width="40%"><strong>Description</strong></td>
-    <td>Provides a collection of preset visual effects, such as parallax.</td>
-  </tr>
-  <tr>
     <td width="40%"><strong>Required Script</strong></td>
     <td><code>&lt;script async custom-element="amp-fx-collection" src="https://cdn.ampproject.org/v0/amp-fx-collection-0.1.js">&lt;/script></code></td>
   </tr>
   <tr>
-    <td class="col-fourty"><strong><a href="https://www.ampproject.org/docs/guides/responsive/control_layout.html">Supported Layouts</a></strong></td>
+    <td class="col-fourty"><strong><a href="https://amp.dev/documentation/guides-and-tutorials/develop/style_and_layout/control_layout">Supported Layouts</a></strong></td>
     <td>nodisplay</td>
   </tr>
   <tr>
     <td width="40%"><strong>Examples</strong></td>
-    <td>See AMP By Example's <a href="https://ampbyexample.com/components/amp-fx-collection/">amp-fx-collection</a> example.</td>
+    <td>See AMP By Example's <a href="https://amp.dev/documentation/examples/components/amp-fx-collection/">amp-fx-collection</a> example.</td>
   </tr>
 </table>
 
@@ -41,9 +45,6 @@ limitations under the License.
 
 The `amp-fx-collection` extension provides a collection of preset visual effects,
 such as parallax that can be easily enabled on any element via attributes.
-
-Currently, the `parallax` and `fade-in` effects are supported.
-More effects such as `fly-in` are planned to be supported soon.
 
 To specify a visual effect for an element, add the `amp-fx` attribute with the value of the visual effect.
 
@@ -87,7 +88,7 @@ The `fade-in` effect allows an element to fade in once the element being targett
 
 This is the duration over which the animation takes places. The default value is `1000ms`.
 
-In the below example, the animation lasts over `2000ms`. 
+In the below example, the animation lasts over `2000ms`.
 
 ```html
   <div amp-fx="fade-in" data-duration="2000ms">
@@ -104,7 +105,7 @@ This parameter lets you vary the animation's speed over the course of its durati
 * “ease-out” - cubic-bezier(0.40, 0.00, 0.40, 1.00)
 or specify a `custom-bezier()` input
 
-In the below example, the animation acceleration curve is a custom specified `cubic-bezier(...)` curve. 
+In the below example, the animation acceleration curve is a custom specified `cubic-bezier(...)` curve.
 
 ```html
   <div amp-fx="fade-in" data-easing="cubic-bezier(0.40, 0.00, 0.40, 1.00)">
@@ -116,7 +117,7 @@ In the below example, the animation acceleration curve is a custom specified `cu
 
 This parameter determines when to trigger the timed animation. The value specified in `<percent>` dictates that the animation should be triggered when the element has crossed that percentage of the viewport. The default value is `5%`.
 
-In the below example, the animation doesn't start until the element has crossed 20% of the viewport from the bottom. 
+In the below example, the animation doesn't start until the element has crossed 20% of the viewport from the bottom.
 
 ```html
   <div amp-fx="fade-in" data-margin-start="20%">
@@ -126,7 +127,7 @@ In the below example, the animation doesn't start until the element has crossed 
 
 ### fade-in-scroll
 
-The `fade-in-scroll` effect allows you to change the opacity of an element as it scrolls within the viewport. This creates a scroll dependent fade animation. By default once the element is fully visible we don't animate the opacity anymore. 
+The `fade-in-scroll` effect allows you to change the opacity of an element as it scrolls within the viewport. This creates a scroll dependent fade animation. By default once the element is fully visible we don't animate the opacity anymore.
 
 ##### data-margin-start (optional)
 
@@ -136,19 +137,19 @@ This parameter determines when to trigger the timed animation. The value specifi
 
 This parameter determines when to stop the animation. The value specified in `<percent>` dictates that the animation should have finished when the specified amount of the element being targetted is visible. The default value is `50%`
 
-In the below example, the `<div>` is fully visible by the time it has crossed 80% of the viewport from the bottom. 
+In the below example, the `<div>` is fully visible by the time it has crossed 80% of the viewport from the bottom.
 
 ```html
-  <div amp-fx="fade-in" data-margin-end="80%">
+  <div amp-fx="fade-in-scroll" data-margin-end="80%">
     <amp-img width="1600" height="900" layout="responsive" src="https://picsum.photos/1600/900?image=1069"></amp-img>
   </div>
 ```
 
 ##### data-repeat (optional)
 
-By default once the element is fully visible we don't animate the opacity anymore. If you want the opacity to change with the scroll, even when the element has fully loaded, specify this variable on the animation. 
+By default once the element is fully visible we don't animate the opacity anymore. If you want the opacity to change with the scroll, even when the element has fully loaded, specify this variable on the animation.
 
-In the below example, the animation is fully dependent on scroll and the `<div>` fades in and out as the user scrolls. 
+In the below example, the animation is fully dependent on scroll and the `<div>` fades in and out as the user scrolls.
 
 ```html
   <div amp-fx="fade-in-scroll" data-repeat>
@@ -156,7 +157,21 @@ In the below example, the animation is fully dependent on scroll and the `<div>`
   </div>
 ```
 
-### fly-in-bottom, fly-in-left, fly-in-right, fly-in-top (experimental)
+### float-in-top, float-in-bottom
+
+The `float-in` effects slide a [`position: fixed`](https://developer.mozilla.org/en-US/docs/Web/CSS/position) element in-and-out of view as the document is scrolled up or down.
+
+An element with `amp-fx="float-in-top"` or `...bottom` must have the following CSS properties:
+
+- `position: fixed`
+- `overflow: hidden`
+- **if it's `top`**, `top: 0`
+- **if it's `bottom`**, `bottom: 0`
+
+If any of these is not set, the effect will not be applied and a warning will be
+thrown in [development mode.](https://amp.dev/documentation/guides-and-tutorials/learn/validation-workflow/validate_amp#browser-developer-console)
+
+### fly-in-bottom, fly-in-left, fly-in-right, fly-in-top
 
 The `fly-in` effects allow an element's position to be translated by a specified amount once it is in the viewport.
 
@@ -176,7 +191,7 @@ If the user overrides this default value of `data-duration` to `Xms`, the same d
 
 ##### data-easing (optional)
 
-This parameter lets you vary the animation's speed over the course of its duration. The default is `ease-in` which is `cubic-bezier(0.40, 0.00, 0.40, 1.00)`. You can choose from one of the presets available:
+This parameter lets you vary the animation's speed over the course of its duration. The default is `ease-out` which is `cubic-bezier(0.40, 0.00, 0.40, 1.00)`. You can choose from one of the presets available:
 * “linear” - cubic-bezier(0.00, 0.00, 1.00, 1.00)
 * “ease-in-out” - cubic-bezier(0.80, 0.00, 0.20, 1.00)
 * “ease-in” - cubic-bezier(0.80, 0.00, 0.60, 1.00)
@@ -219,7 +234,7 @@ This parameter determines the translation to take place. The value is specified 
   </tr>
 </table>
 
-In the below example, the element is translated along the Y axis across `20%` of the viewport. 
+In the below example, the element is translated along the Y axis across `20%` of the viewport.
 
 ```html
   <div amp-fx="fly-in-bottom" data-fly-in-distance="20%">
@@ -233,7 +248,7 @@ This parameter determines when to trigger the timed animation. The value specifi
 
 ## Combining presets
 
-Developers can also combine `amp-fx` presets together to create combined animations. 
+Developers can also combine `amp-fx` presets together to create combined animations.
 
 
 In the below example, the element is both translated along the Y axis and has it's opacity changed from `0` to `1` over a duration of `1000ms`.
@@ -244,9 +259,9 @@ In the below example, the element is both translated along the Y axis and has it
   </div>
 ```
 
-However, there are some presets which don't combine together to create great results. In such cases, we accept the first preset listed and ignore the clashing preset and warn in the console. 
+However, there are some presets which don't combine together to create great results. In such cases, we accept the first preset listed and ignore the clashing preset and warn in the console.
 
-In the below example, the element is being translated along the Y axis by two clashing presets `parallax` and `fly-in-bottom`. In this case we only allow the `parallax` animation and ignore the `fly-in-bottom` preset. 
+In the below example, the element is being translated along the Y axis by two clashing presets `parallax` and `fly-in-bottom`. In this case we only allow the `parallax` animation and ignore the `fly-in-bottom` preset.
 
 ```html
   <div amp-fx="parallax fly-in-bottom" data-parallax-factor="1.5">

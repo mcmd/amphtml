@@ -107,8 +107,8 @@ The AMP Cache rewrites URLs found in the AMP HTML for two purposes. One is to re
 
 #### All relative `href` , `src`, `bookend-config-src`, `data-iframe-src` and `data-no-service-worker-fallback-shell-url` URLs are rewritten as absolute URLs
 
-`bookend-confg-src` is part of `<amp-story>` [spec](https://www.ampproject.org/docs/reference/components/amp-story)
-`data-iframe-src` and `data-no-service-worker-fallback-shell-url` are part of `<amp-install-serviceworker>` [spec](https://www.ampproject.org/docs/reference/components/amp-install-serviceworker)
+`bookend-confg-src` is part of `<amp-story>` [spec](https://amp.dev/documentation/components/amp-story)
+`data-iframe-src` and `data-no-service-worker-fallback-shell-url` are part of `<amp-install-serviceworker>` [spec](https://amp.dev/documentation/components/amp-install-serviceworker)
 
 <details>
 <summary>example</summary>
@@ -292,14 +292,16 @@ Any `<link>` tag present with attribute `rel` equal to any of the following:
 Remove any `<meta>` tags except for those that:
  - have attribute `charset`
  - do not have attributes `content`, `itemprop`, `name` and `property`
- - have attribute `http-equiv` where attribute value is not `x-dns-prefetch-control`
+ - have attribute `http-equiv` where attribute value is not one of:
+   - `content-security-policy`
+   - `refresh`
+   - `x-dns-prefetch-control`
  - have attribute `name` with case-insensitive prefix `amp-`
  - have attribute `name` with case-insensitive prefix `amp4ads-`
  - have attribute `name` with case-insensitive prefix `dc.`
  - have attribute `name` with case-insensitive prefix `i-amphtml-`
  - have attribute `name` with case-insensitive prefix `twitter:`
  - have attribute `name=apple-itunes-app`
- - have attribute `name=copyright`
  - have attribute `name=referrer` [note: this may be inserted by AMP Cache]
  - have attribute `name=robots` [note: this is inserted by AMP Cache]
  - have attribute `name=viewport`

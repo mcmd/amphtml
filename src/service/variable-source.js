@@ -13,22 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import {dev} from '../log';
+import {Services} from '../services';
+import {devAssert} from '../log';
 import {isFiniteNumber} from '../types';
 import {loadPromise} from '../event-helper';
 
 /** @typedef {string|number|boolean|undefined|null} */
-let ResolverReturnDef;
+export let ResolverReturnDef;
 
-/** @typedef {function(...*):ResolverReturnDef} */
+/** @typedef {function(...string):ResolverReturnDef} */
 export let SyncResolverDef;
 
-/** @typedef {function(...*):!Promise<ResolverReturnDef>} */
+/** @typedef {function(...string):!Promise<ResolverReturnDef>} */
 export let AsyncResolverDef;
 
 /** @typedef {{sync: SyncResolverDef, async: AsyncResolverDef}} */
 let ReplacementDef;
 
+const LOAD_EVENT_END = 'loadEventEnd';
 
 /**
  * Returns navigation timing information based on the start and end events.
@@ -42,7 +44,16 @@ let ReplacementDef;
  * @return {!Promise<ResolverReturnDef>}
  */
 export function getTimingDataAsync(win, startEvent, endEvent) {
-  return loadPromise(win).then(() => {
+  let readyPromise = loadPromise(win);
+  if (startEvent === LOAD_EVENT_END || endEvent === LOAD_EVENT_END) {
+    // performance.timing.loadEventEnd returns 0 before the load event handler
+    // has terminated, that's when the load event is completed.
+    // To wait for the event handler to terminate, wait 1ms and defer to the
+    // event loop.
+    const timer = Services.timerFor(win);
+    readyPromise = readyPromise.then(() => timer.promise(1));
+  }
+  return readyPromise.then(() => {
     return getTimingDataSync(win, startEvent, endEvent);
   });
 }
@@ -66,9 +77,10 @@ export function getTimingDataSync(win, startEvent, endEvent) {
     return;
   }
 
-  const metric = (endEvent === undefined)
-    ? timingInfo[startEvent]
-    : timingInfo[endEvent] - timingInfo[startEvent];
+  const metric =
+    endEvent === undefined
+      ? timingInfo[startEvent]
+      : timingInfo[endEvent] - timingInfo[startEvent];
 
   if (!isFiniteNumber(metric) || metric < 0) {
     // The metric is not supported.
@@ -86,8 +98,7 @@ export function getTimingDataSync(win, startEvent, endEvent) {
  * @private
  */
 export function getNavigationData(win, attribute) {
-  const navigationInfo = win['performance'] &&
-    win['performance']['navigation'];
+  const navigationInfo = win['performance'] && win['performance']['navigation'];
   if (!navigationInfo || navigationInfo[attribute] === undefined) {
     // PerformanceNavigation interface is not supported or attribute is not
     // implemented.
@@ -95,7 +106,6 @@ export function getNavigationData(win, attribute) {
   }
   return navigationInfo[attribute];
 }
-
 
 /**
  * A class to provide variable substitution related features. Extend this class
@@ -108,12 +118,6 @@ export class VariableSource {
   constructor(ampdoc) {
     /** @protected @const {!./ampdoc-impl.AmpDoc} */
     this.ampdoc = ampdoc;
-
-    /** @private {!RegExp|undefined} */
-    this.replacementExpr_ = undefined;
-
-    /** @private {!RegExp|undefined} */
-    this.replacementExprV2_ = undefined;
 
     /** @private @const {!Object<string, !ReplacementDef>} */
     this.replacements_ = Object.create(null);
@@ -164,12 +168,12 @@ export class VariableSource {
    * @return {!VariableSource}
    */
   set(varName, syncResolver) {
-    dev().assert(varName.indexOf('RETURN') == -1);
-    this.replacements_[varName] =
-        this.replacements_[varName] || {sync: undefined, async: undefined};
+    devAssert(varName.indexOf('RETURN') == -1);
+    this.replacements_[varName] = this.replacements_[varName] || {
+      sync: undefined,
+      async: undefined,
+    };
     this.replacements_[varName].sync = syncResolver;
-    this.replacementExpr_ = undefined;
-    this.replacementExprV2_ = undefined;
     return this;
   }
 
@@ -184,12 +188,12 @@ export class VariableSource {
    * @return {!VariableSource}
    */
   setAsync(varName, asyncResolver) {
-    dev().assert(varName.indexOf('RETURN') == -1);
-    this.replacements_[varName] =
-        this.replacements_[varName] || {sync: undefined, async: undefined};
+    devAssert(varName.indexOf('RETURN') == -1);
+    this.replacements_[varName] = this.replacements_[varName] || {
+      sync: undefined,
+      async: undefined,
+    };
     this.replacements_[varName].async = asyncResolver;
-    this.replacementExpr_ = undefined;
-    this.replacementExprV2_ = undefined;
     return this;
   }
 
@@ -208,49 +212,26 @@ export class VariableSource {
    * Returns a Regular expression that can be used to detect all the variables
    * in a template.
    * @param {!Object<string, *>=} opt_bindings
-   * @param {boolean=} isV2 Flag to ignore capture of args.
    * @param {!Object<string, boolean>=} opt_whiteList Optional white list of names
    *   that can be substituted.
+   * @return {!RegExp}
    */
-  getExpr(opt_bindings, isV2, opt_whiteList) {
+  getExpr(opt_bindings, opt_whiteList) {
     if (!this.initialized_) {
       this.initialize_();
     }
-
-    const additionalKeys = opt_bindings ? Object.keys(opt_bindings) : null;
-    if (additionalKeys && additionalKeys.length > 0) {
-      const allKeys = Object.keys(this.replacements_);
-      additionalKeys.forEach(key => {
-        if (this.replacements_[key] === undefined) {
-          allKeys.push(key);
-        }
-      });
-      return this.buildExpr_(allKeys, isV2, opt_whiteList);
-    }
-    if (!this.replacementExpr_ && !isV2) {
-      this.replacementExpr_ = this.buildExpr_(
-          Object.keys(this.replacements_));
-    }
-    // sometimes the v1 expand will be called before the v2
-    // so we need to cache both versions
-    if (!this.replacementExprV2_ && isV2) {
-      this.replacementExprV2_ = this.buildExpr_(
-          Object.keys(this.replacements_), isV2, opt_whiteList);
-    }
-
-    return isV2 ? this.replacementExprV2_ :
-      this.replacementExpr_;
+    const all = Object.assign({}, this.replacements_, opt_bindings);
+    return this.buildExpr_(Object.keys(all), opt_whiteList);
   }
 
   /**
    * @param {!Array<string>} keys
-   * @param {boolean=} isV2 flag to ignore capture of args
    * @param {!Object<string, boolean>=} opt_whiteList Optional white list of names
    *   that can be substituted.
    * @return {!RegExp}
    * @private
    */
-  buildExpr_(keys, isV2, opt_whiteList) {
+  buildExpr_(keys, opt_whiteList) {
     // If a whitelist is present, the keys must belong to the whitelist.
     // We filter the keys one last time to ensure no unwhitelisted key is
     // allowed.
@@ -286,11 +267,7 @@ export class VariableSource {
     // FOO_BAR(arg1)
     // FOO_BAR(arg1,arg2)
     // FOO_BAR(arg1, arg2)
-    let regexStr = '\\$?(' + all + ')';
-    // ignore the capturing of arguments in new parser
-    if (!isV2) {
-      regexStr += '(?:\\(((?:\\s*[0-9a-zA-Z-_.]*\\s*(?=,|\\)),?)*)\\s*\\))?';
-    }
+    const regexStr = '\\$?(' + all + ')';
     return new RegExp(regexStr, 'g');
   }
 
@@ -311,8 +288,7 @@ export class VariableSource {
 
     // A meta[name="amp-allowed-url-macros"] tag, if present,
     // contains, in its content attribute, a whitelist of variable substitution.
-    const meta =
-      head.querySelector('meta[name="amp-allowed-url-macros"]');
+    const meta = head.querySelector('meta[name="amp-allowed-url-macros"]');
     if (!meta) {
       return null;
     }
@@ -321,8 +297,10 @@ export class VariableSource {
      * The whitelist of variables allowed for variable substitution.
      * @private {?Array<string>}
      */
-    this.variableWhitelist_ = meta.getAttribute('content').split(',')
-        .map(variable => variable.trim());
+    this.variableWhitelist_ = meta
+      .getAttribute('content')
+      .split(',')
+      .map(variable => variable.trim());
     return this.variableWhitelist_;
   }
 }

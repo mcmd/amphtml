@@ -1,3 +1,10 @@
+---
+$category@: social
+formats:
+  - websites
+teaser:
+  text: Displays a Pinterest widget or Save button.
+---
 <!---
 Copyright 2015 The AMP HTML Authors.
 
@@ -14,24 +21,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# <a name=”amp-pinterest”></a> `amp-pinterest`
+# amp-pinterest
+
+Displays a Pinterest widget, Save button, or Follow button.
 
 <table>
-  <tr>
-    <td width="40%"><strong>Description</strong></td>
-    <td>Displays a Pinterest widget, Pin It button, or Follow button.</td>
-  </tr>
   <tr>
     <td width="40%"><strong>Required Script</strong></td>
     <td><code>&lt;script async custom-element="amp-pinterest" src="https://cdn.ampproject.org/v0/amp-pinterest-0.1.js">&lt;/script></code></td>
   </tr>
   <tr>
-    <td class="col-fourty"><strong><a href="https://www.ampproject.org/docs/guides/responsive/control_layout.html">Supported Layouts</a></strong></td>
+    <td class="col-fourty"><strong><a href="https://amp.dev/documentation/guides-and-tutorials/develop/style_and_layout/control_layout">Supported Layouts</a></strong></td>
     <td>fill, fixed, fixed-height, flex-item, nodisplay, responsive</td>
   </tr>
   <tr>
     <td width="40%"><strong>Examples</strong></td>
-    <td><a href="https://ampbyexample.com/components/amp-pinterest/">Annotated code example for amp-pinterest</a></td>
+    <td><a href="https://amp.dev/documentation/examples/components/amp-pinterest/">Annotated code example for amp-pinterest</a></td>
   </tr>
 </table>
 
@@ -39,9 +44,9 @@ limitations under the License.
 
 ## Examples
 
-Use the `amp-pinterest` component to display a Pin It button, Pin widget, or Follow button.
+Use the `amp-pinterest` component to display a Save button, Pin widget, or Follow button.
 
-**Example: Pin It button**
+**Example: Save button**
 
 ```html
 <amp-pinterest
@@ -77,7 +82,7 @@ Use the `amp-pinterest` component to display a Pin It button, Pin widget, or Fol
 </amp-pinterest>
 ```
 
-## Pin It Button
+## Save Button
 
 ##### data-do (required)
 
@@ -85,17 +90,17 @@ Must be set to `buttonPin`.
 
 ##### data-url (required)
 
-Contains the fully-qualified URL intended to be pinned or re-made into a widget.
+Contains the fully-qualified URL intended to be saved as a pin or re-made into a widget.
 
 ##### data-media (required)
 
-Contains the fully-qualified URL of the image intended to be pinned. If the pin will eventually contain multimedia (such as YouTube), it should point to a high-resolution thumbnail.
+Contains the fully-qualified URL of the image intended to be saved as a pin. If the pin will eventually contain multimedia (such as YouTube), it should point to a high-resolution thumbnail.
 
 ##### data-description (required)
 
 Contains the default description that appears in the pin create form; please choose carefully, since many Pinners will close the form without pinning if it doesn't make sense.
 
-### Sizing the Pin It button
+### Sizing the Save button
 
 Default small rectangular button:
 

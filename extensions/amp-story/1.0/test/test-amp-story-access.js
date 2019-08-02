@@ -14,7 +14,11 @@
  * limitations under the License.
  */
 
-import {Action, AmpStoryStoreService} from '../amp-story-store-service';
+import {
+  Action,
+  AmpStoryStoreService,
+  StateProperty,
+} from '../amp-story-store-service';
 import {AmpStoryAccess, Type} from '../amp-story-access';
 import {registerServiceBuilder} from '../../../../src/service';
 
@@ -63,12 +67,13 @@ describes.realWin('amp-story-access', {amp: true}, env => {
 
     // Publisher provided button is no longer a child of <amp-story-access>.
     expect(
-        storyAccess.element
-            .querySelector('amp-story-access > .subscribe-button')).to.be.null;
+      storyAccess.element.querySelector('amp-story-access > .subscribe-button')
+    ).to.be.null;
 
     // But has been copied in the drawer.
-    const buttonInDrawerEl = storyAccess.element
-        .querySelector('.i-amphtml-story-access-content > .subscribe-button');
+    const buttonInDrawerEl = storyAccess.element.querySelector(
+      '.i-amphtml-story-access-content > .subscribe-button'
+    );
     expect(buttonInDrawerEl).to.exist;
   });
 
@@ -78,8 +83,9 @@ describes.realWin('amp-story-access', {amp: true}, env => {
     storeService.dispatch(Action.TOGGLE_ACCESS, true);
 
     win.requestAnimationFrame(() => {
-      expect(storyAccess.element)
-          .to.have.class('i-amphtml-story-access-visible');
+      expect(storyAccess.element).to.have.class(
+        'i-amphtml-story-access-visible'
+      );
       done();
     });
   });
@@ -94,20 +100,20 @@ describes.realWin('amp-story-access', {amp: true}, env => {
     });
 
     win.requestAnimationFrame(() => {
-      expect(storyAccess.element)
-          .to.have.class('i-amphtml-story-access-visible');
+      expect(storyAccess.element).to.have.class(
+        'i-amphtml-story-access-visible'
+      );
       done();
     });
   });
 
   it('should whitelist the default <amp-access> actions', () => {
-    const addToWhitelistStub =
-        sandbox.stub(storyAccess.actions_, 'addToWhitelist');
-
     storyAccess.buildCallback();
 
-    expect(addToWhitelistStub).to.have.been.calledOnce;
-    expect(addToWhitelistStub).to.have.been.calledWith('SCRIPT', 'login');
+    const actions = storyAccess.storeService_.get(
+      StateProperty.ACTIONS_WHITELIST
+    );
+    expect(actions).to.deep.contain({tagOrTarget: 'SCRIPT', method: 'login'});
   });
 
   it('should whitelist the typed <amp-access> actions', () => {
@@ -117,58 +123,71 @@ describes.realWin('amp-story-access', {amp: true}, env => {
     };
     setConfig(defaultConfig);
 
-    const addToWhitelistStub =
-        sandbox.stub(storyAccess.actions_, 'addToWhitelist');
-
     storyAccess.buildCallback();
 
-    expect(addToWhitelistStub).to.have.been.calledTwice;
-    expect(addToWhitelistStub).to.have.been.calledWith(
-        'SCRIPT', 'login-typefoo');
-    expect(addToWhitelistStub).to.have.been.calledWith(
-        'SCRIPT', 'login-typebar');
+    const actions = storyAccess.storeService_.get(
+      StateProperty.ACTIONS_WHITELIST
+    );
+    expect(actions).to.deep.contain({
+      tagOrTarget: 'SCRIPT',
+      method: 'login-typefoo',
+    });
+    expect(actions).to.deep.contain({
+      tagOrTarget: 'SCRIPT',
+      method: 'login-typebar',
+    });
   });
 
   it('should whitelist the namespaced and default <amp-access> actions', () => {
     defaultConfig.namespace = 'foo';
     setConfig(defaultConfig);
 
-    const addToWhitelistStub =
-        sandbox.stub(storyAccess.actions_, 'addToWhitelist');
-
     storyAccess.buildCallback();
 
-    expect(addToWhitelistStub).to.have.been.calledTwice;
     // Both namespaced and default actions are allowed.
-    expect(addToWhitelistStub).to.have.been.calledWith('SCRIPT', 'login');
-    expect(addToWhitelistStub).to.have.been.calledWith('SCRIPT', 'login-foo');
+    const actions = storyAccess.storeService_.get(
+      StateProperty.ACTIONS_WHITELIST
+    );
+    expect(actions).to.deep.contain({tagOrTarget: 'SCRIPT', method: 'login'});
+    expect(actions).to.deep.contain({
+      tagOrTarget: 'SCRIPT',
+      method: 'login-foo',
+    });
   });
 
   it('should whitelist namespaced and typed <amp-access> actions', () => {
-    const config = [{
-      namespace: 'namespace1',
-      login: {
-        type1: 'https://example.com',
-        type2: 'https://example.com',
+    const config = [
+      {
+        namespace: 'namespace1',
+        login: {
+          type1: 'https://example.com',
+          type2: 'https://example.com',
+        },
       },
-    }, {
-      namespace: 'namespace2',
-      login: 'https://example.com',
-    }];
+      {
+        namespace: 'namespace2',
+        login: 'https://example.com',
+      },
+    ];
     setConfig(config);
-
-    const addToWhitelistStub =
-        sandbox.stub(storyAccess.actions_, 'addToWhitelist');
 
     storyAccess.buildCallback();
 
-    expect(addToWhitelistStub).to.have.callCount(3);
-    expect(addToWhitelistStub).to.have.been.calledWith(
-        'SCRIPT', 'login-namespace1-type1');
-    expect(addToWhitelistStub).to.have.been.calledWith(
-        'SCRIPT', 'login-namespace1-type2');
-    expect(addToWhitelistStub).to.have.been.calledWith(
-        'SCRIPT', 'login-namespace2');
+    const actions = storyAccess.storeService_.get(
+      StateProperty.ACTIONS_WHITELIST
+    );
+    expect(actions).to.deep.contain({
+      tagOrTarget: 'SCRIPT',
+      method: 'login-namespace1-type1',
+    });
+    expect(actions).to.deep.contain({
+      tagOrTarget: 'SCRIPT',
+      method: 'login-namespace1-type2',
+    });
+    expect(actions).to.deep.contain({
+      tagOrTarget: 'SCRIPT',
+      method: 'login-namespace2',
+    });
   });
 
   it('should require publisher-logo-src to be a URL', () => {
@@ -177,8 +196,9 @@ describes.realWin('amp-story-access', {amp: true}, env => {
     allowConsoleError(() => {
       expect(() => {
         storyAccess.buildCallback();
-      }).to.throw('amp-story publisher-logo-src must start with ' +
-          '"https://" or "//"');
+      }).to.throw(
+        'amp-story publisher-logo-src must start with "https://" or "//"'
+      );
     });
   });
 });

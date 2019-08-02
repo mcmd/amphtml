@@ -16,6 +16,7 @@
 import {Deferred} from '../../../src/utils/promise';
 import {
   MIN_VISIBILITY_RATIO_FOR_AUTOPLAY,
+  VideoAnalyticsEvents,
   VideoEvents,
 } from '../../../src/video-interface';
 import {
@@ -26,28 +27,32 @@ import {
   originMatches,
 } from '../../../src/iframe-video';
 import {Services} from '../../../src/services';
-import {dev} from '../../../src/log';
+import {dev, devAssert, user, userAssert} from '../../../src/log';
 import {dict} from '../../../src/utils/object';
 import {
   disableScrollingOnIframe,
-  isAdLike,
   looksLikeTrackingIframe,
 } from '../../../src/iframe-helper';
 import {getData, listen} from '../../../src/event-helper';
 import {htmlFor} from '../../../src/static-template';
-import {
-  installVideoManagerForDoc,
-} from '../../../src/service/video-manager-impl';
+import {installVideoManagerForDoc} from '../../../src/service/video-manager-impl';
 import {isFullscreenElement, removeElement} from '../../../src/dom';
 import {isLayoutSizeDefined} from '../../../src/layout';
+import {once} from '../../../src/utils/function';
 
 /** @private @const */
 const TAG = 'amp-video-iframe';
 
 /** @private @const */
+const ANALYTICS_EVENT_TYPE_PREFIX = 'video-custom-';
+
+/** @private @const */
 const SANDBOX = [
   SandboxOptions.ALLOW_SCRIPTS,
   SandboxOptions.ALLOW_SAME_ORIGIN,
+  SandboxOptions.ALLOW_POPUPS,
+  SandboxOptions.ALLOW_POPUPS_TO_ESCAPE_SANDBOX,
+  SandboxOptions.ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION,
 ];
 
 /**
@@ -64,9 +69,27 @@ const ALLOWED_EVENTS = [
   VideoEvents.AD_END,
 ];
 
+/**
+ * @return {!RegExp}
+ * @private
+ */
+const getAnalyticsEventTypePrefixRegex = once(
+  () => new RegExp(`^${ANALYTICS_EVENT_TYPE_PREFIX}`)
+);
+
+/**
+ * @param {string} src
+ * @return {string}
+ */
+function maybeAddAmpFragment(src) {
+  if (src.indexOf('#') > -1) {
+    return src;
+  }
+  return `${src}#amp=1`;
+}
+
 /** @implements {../../../src/video-interface.VideoInterface} */
 class AmpVideoIframe extends AMP.BaseElement {
-
   /** @param {!AmpElement} element */
   constructor(element) {
     super(element);
@@ -77,20 +100,15 @@ class AmpVideoIframe extends AMP.BaseElement {
     /** @private {!UnlistenDef|null} */
     this.unlistenFrame_ = null;
 
-    /** @private {?function()} */
-    this.readyPromise_ = null;
-
-    /** @private {?function()} */
-    this.readyResolver_ = null;
-
-    /** @private {?function()} */
-    this.readyRejecter_ = null;
+    /** @private {?Deferred} */
+    this.readyDeferred_ = null;
 
     /** @private {boolean} */
     this.canPlay_ = false;
 
     /**
      * @param {!Event} e
+     * @return {*} TODO(#23582): Specify return type
      * @private
      */
     this.boundOnMessage_ = e => this.onMessage_(e);
@@ -105,13 +123,18 @@ class AmpVideoIframe extends AMP.BaseElement {
   buildCallback() {
     const {element} = this;
 
-    this.user().assert(!isAdLike(element),
-        '<amp-video-iframe> does not allow ad iframes. ',
-        'Please use amp-ad instead.');
+    // TODO(alanorozco): On integration tests, `getLayoutBox` will return a
+    // cached default value, which makes this assertion fail. Move to
+    // `describes.integration` to see if that fixes it.
+    const isIntegrationTest = element.hasAttribute(
+      'i-amphtml-integration-test'
+    );
 
-    this.user().assert(!looksLikeTrackingIframe(element),
-        '<amp-video-iframe> does not allow tracking iframes. ',
-        'Please use amp-analytics instead.');
+    this.user().assert(
+      isIntegrationTest || !looksLikeTrackingIframe(element),
+      '<amp-video-iframe> does not allow tracking iframes. ' +
+        'Please use amp-analytics instead.'
+    );
 
     installVideoManagerForDoc(element);
   }
@@ -120,12 +143,30 @@ class AmpVideoIframe extends AMP.BaseElement {
   layoutCallback() {
     const name = JSON.stringify(this.getMetadata_());
 
-    this.iframe_ =
-        disableScrollingOnIframe(
-            createFrameFor(this, this.getSrc_(), name, SANDBOX));
+    this.iframe_ = disableScrollingOnIframe(
+      createFrameFor(this, this.getSrc_(), name, SANDBOX)
+    );
 
     this.unlistenFrame_ = listen(this.win, 'message', this.boundOnMessage_);
     return this.createReadyPromise_().then(() => this.onReady_());
+  }
+
+  /** @override */
+  mutatedAttributesCallback(mutations) {
+    if (mutations['src']) {
+      this.updateSrc_();
+    }
+  }
+
+  /** @private */
+  updateSrc_() {
+    const iframe = this.iframe_;
+
+    if (!iframe || iframe.src == this.getSrc_()) {
+      return;
+    }
+
+    iframe.src = this.getSrc_();
   }
 
   /**
@@ -151,11 +192,15 @@ class AmpVideoIframe extends AMP.BaseElement {
   /** @override */
   createPlaceholderCallback() {
     const {element} = this;
-    const poster =
-        htmlFor(element)`<amp-img layout=fill placeholder></amp-img>`;
+    const html = htmlFor(element);
+    const poster = html`
+      <amp-img layout="fill" placeholder></amp-img>
+    `;
 
-    poster.setAttribute('src',
-        this.user().assertString(element.getAttribute('poster')));
+    poster.setAttribute(
+      'src',
+      this.user().assertString(element.getAttribute('poster'))
+    );
 
     return poster;
   }
@@ -188,15 +233,17 @@ class AmpVideoIframe extends AMP.BaseElement {
     const src = urlService.assertHttpsUrl(element.getAttribute('src'), element);
 
     if (urlService.getSourceOrigin(src) === urlService.getWinOrigin(this.win)) {
-      this.user().warn(TAG,
-          'Origins of document inside amp-video-iframe and the host are the ' +
+      this.user().warn(
+        TAG,
+        'Origins of document inside amp-video-iframe and the host are the ' +
           'same, which allows for same-origin behavior. However in AMP ' +
-          'cache, origins won\'t match. Please ensure you do not rely on any ' +
+          "cache, origins won't match. Please ensure you do not rely on any " +
           'same-origin privileges.',
-          element);
+        element
+      );
     }
 
-    return src;
+    return maybeAddAmpFragment(src);
   }
 
   /**
@@ -204,11 +251,8 @@ class AmpVideoIframe extends AMP.BaseElement {
    * @private
    */
   createReadyPromise_() {
-    const {promise, resolve, reject} = new Deferred();
-    this.readyPromise_ = promise;
-    this.readyResolver_ = resolve;
-    this.readyRejecter_ = reject;
-    return promise;
+    this.readyDeferred_ = new Deferred();
+    return this.readyDeferred_.promise;
   }
 
   /**
@@ -247,7 +291,7 @@ class AmpVideoIframe extends AMP.BaseElement {
         this.postIntersection_(messageId);
         return;
       }
-      dev().assert(false, `Unknown method '${methodReceived}`);
+      userAssert(false, 'Unknown method `%s`.', methodReceived);
       return;
     }
 
@@ -256,13 +300,20 @@ class AmpVideoIframe extends AMP.BaseElement {
 
     this.canPlay_ = this.canPlay_ || isCanPlayEvent;
 
+    const {reject, resolve} = devAssert(this.readyDeferred_);
+
     if (isCanPlayEvent) {
-      dev().assert(this.readyResolver_).call();
-      return;
+      return resolve();
     }
 
     if (eventReceived == 'error' && !this.canPlay_) {
-      dev().assert(this.readyRejecter_).call();
+      return reject('Received `error` event.');
+    }
+
+    if (eventReceived == 'analytics') {
+      const spec = devAssert(data['analytics']);
+
+      this.dispatchCustomAnalyticsEvent_(spec['eventType'], spec['vars']);
       return;
     }
 
@@ -270,6 +321,25 @@ class AmpVideoIframe extends AMP.BaseElement {
       this.element.dispatchCustomEvent(eventReceived);
       return;
     }
+  }
+
+  /**
+   * @param {string} eventType
+   * @param {!Object<string, string>=} vars
+   */
+  dispatchCustomAnalyticsEvent_(eventType, vars = {}) {
+    user().assertString(eventType, '`eventType` missing in analytics event');
+
+    userAssert(
+      getAnalyticsEventTypePrefixRegex().test(eventType),
+      'Invalid analytics `eventType`. Value must start with `%s`.',
+      ANALYTICS_EVENT_TYPE_PREFIX
+    );
+
+    this.element.dispatchCustomEvent(VideoAnalyticsEvents.CUSTOM, {
+      eventType,
+      vars,
+    });
   }
 
   /**
@@ -282,16 +352,19 @@ class AmpVideoIframe extends AMP.BaseElement {
     // Only post ratio > 0 when in autoplay range to prevent internal autoplay
     // implementations that differ from ours.
     const postedRatio =
-        intersectionRatio < MIN_VISIBILITY_RATIO_FOR_AUTOPLAY ?
-          0 : intersectionRatio;
+      intersectionRatio < MIN_VISIBILITY_RATIO_FOR_AUTOPLAY
+        ? 0
+        : intersectionRatio;
 
-    this.postMessage_(dict({
-      'id': messageId,
-      'args': {
-        'intersectionRatio': postedRatio,
-        'time': time,
-      },
-    }));
+    this.postMessage_(
+      dict({
+        'id': messageId,
+        'args': {
+          'intersectionRatio': postedRatio,
+          'time': time,
+        },
+      })
+    );
   }
 
   /**
@@ -299,10 +372,12 @@ class AmpVideoIframe extends AMP.BaseElement {
    * @private
    */
   method_(method) {
-    this.postMessage_(dict({
-      'event': 'method',
-      'method': method,
-    }));
+    this.postMessage_(
+      dict({
+        'event': 'method',
+        'method': method,
+      })
+    );
   }
 
   /**
@@ -313,12 +388,15 @@ class AmpVideoIframe extends AMP.BaseElement {
     if (!this.iframe_ || !this.iframe_.contentWindow) {
       return;
     }
-    if (!this.readyPromise_) {
+    const {promise} = this.readyDeferred_;
+    if (!promise) {
       return;
     }
-    this.readyPromise_.then(() => {
-      this.iframe_.contentWindow./*OK*/postMessage(
-          JSON.stringify(message), '*');
+    promise.then(() => {
+      this.iframe_.contentWindow./*OK*/ postMessage(
+        JSON.stringify(message),
+        '*'
+      );
     });
   }
 
@@ -417,6 +495,11 @@ class AmpVideoIframe extends AMP.BaseElement {
   getPlayedRanges() {
     // TODO(alanorozco)
     return [];
+  }
+
+  /** @override */
+  seekTo(unusedTimeSeconds) {
+    this.user().error(TAG, '`seekTo` not supported.');
   }
 }
 

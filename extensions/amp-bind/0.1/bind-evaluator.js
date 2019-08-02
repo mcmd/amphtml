@@ -17,7 +17,7 @@
 import {BindExpression} from './bind-expression';
 import {BindMacro} from './bind-macro';
 import {BindValidator} from './bind-validator';
-import {filterSplice} from '../../../src/utils/array';
+import {remove} from '../../../src/utils/array';
 
 /**
  * Asynchronously evaluates a set of Bind expressions.
@@ -25,8 +25,9 @@ import {filterSplice} from '../../../src/utils/array';
 export class BindEvaluator {
   /**
    * Creates an instance of BindEvaluator.
+   * @param {boolean} allowUrlProperties
    */
-  constructor() {
+  constructor(allowUrlProperties) {
     /** @const @private {!Array<!BindBindingDef>} */
     this.bindings_ = [];
 
@@ -37,7 +38,7 @@ export class BindEvaluator {
     this.macros_ = Object.create(null);
 
     /** @const @private {!./bind-validator.BindValidator} */
-    this.validator_ = new BindValidator();
+    this.validator_ = new BindValidator(allowUrlProperties);
 
     /** @const @private {!Object<string, !BindExpression>} */
     this.expressions_ = Object.create(null);
@@ -75,8 +76,10 @@ export class BindEvaluator {
       expressionsToRemove[expressionString] = true;
     });
 
-    filterSplice(this.bindings_, binding =>
-      !expressionsToRemove[binding.expressionString]);
+    remove(
+      this.bindings_,
+      binding => !!expressionsToRemove[binding.expressionString]
+    );
   }
 
   /**
@@ -124,8 +127,9 @@ export class BindEvaluator {
       }
       const expression = this.expressions_[expressionString];
       if (!expression) {
-        const error =
-            new Error(`Expression "${expressionString}"" is not cached.`);
+        const error = new Error(
+          `Expression "${expressionString}"" is not cached.`
+        );
         errors[expressionString] = {message: error.message, stack: error.stack};
         return;
       }
@@ -152,8 +156,9 @@ export class BindEvaluator {
         // TODO(choumx): If this expression string is used in another
         // tagName/property which is valid, we ought to allow it.
         delete cache[expressionString];
-        const error =
-            new Error(`"${result}" is not a valid result for [${property}].`);
+        const error = new Error(
+          `"${result}" is not a valid result for [${property}].`
+        );
         errors[expressionString] = {message: error.message, stack: error.stack};
       }
     });

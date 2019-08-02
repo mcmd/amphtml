@@ -16,10 +16,9 @@
 
 import {isLayoutSizeDefined} from '../../../src/layout';
 import {timeago} from '../../../third_party/timeagojs/timeago';
-import {user} from '../../../src/log';
+import {userAssert} from '../../../src/log';
 
 export class AmpTimeAgo extends AMP.BaseElement {
-
   /** @param {!AmpElement} element */
   constructor(element) {
     super(element);
@@ -42,11 +41,15 @@ export class AmpTimeAgo extends AMP.BaseElement {
 
   /** @override */
   buildCallback() {
-    user().assert(this.element.textContent.length > 0,
-        'Content cannot be empty. Found in: %s', this.element);
+    userAssert(
+      this.element.textContent.length > 0,
+      'Content cannot be empty. Found in: %s',
+      this.element
+    );
 
     this.datetime_ = this.element.getAttribute('datetime');
-    this.locale_ = this.element.getAttribute('locale') ||
+    this.locale_ =
+      this.element.getAttribute('locale') ||
       this.win.document.documentElement.lang;
     this.title_ = this.element.textContent.trim();
 
@@ -63,6 +66,15 @@ export class AmpTimeAgo extends AMP.BaseElement {
   /** @override */
   viewportCallback(inViewport) {
     if (inViewport && !this.cutOffReached_) {
+      this.setFuzzyTimestampValue_();
+    }
+  }
+
+  /** @override */
+  mutatedAttributesCallback(mutations) {
+    const datetime = mutations['datetime'];
+    if (datetime !== undefined) {
+      this.datetime_ = datetime;
       this.setFuzzyTimestampValue_();
     }
   }

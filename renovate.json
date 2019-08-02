@@ -2,15 +2,20 @@
   "extends": [
     "config:base"
   ],
+  "node": {
+    "supportPolicy": [
+      "lts_active"
+    ]
+  },
   "statusCheckVerify": true,
-  "ignoreDeps": [
-    "babel-polyfill",
-    "document-register-element",
-    "promise-pjs",
-    "web-activities",
-    "web-animations-js"
-  ],
+  "commitMessagePrefix": "📦",
+  "dependencies": {
+    "enabled": false
+  },
   "includePaths": [
-    "package.json"
+    "package.json",
+    "build-system/tasks/e2e/package.json",
+    "build-system/tasks/visual-diff/package.json",
+    "validator/package.json"
   ]
 }

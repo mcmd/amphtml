@@ -17,41 +17,42 @@
 /** @externs */
 
 /**
- * The "init" argument of the Fetch API. Currently, only "credentials: include"
- * is implemented.  Note ampCors with explicit false indicates that
- * __amp_source_origin should not be appended to the URL to allow for
- * potential caching or response across pages.
+ * The "init" argument of the Fetch API. Externed due to being passes across
+ * component/runtime boundary.
  *
- * See https://developer.mozilla.org/en-US/docs/Web/API/GlobalFetch/fetch
+ * Currently, only "credentials: include" is implemented.
  *
- * Externed for use in the amp-form component when reconstructing
- * the request for SSR and then passed to runtime.
+ * Note ampCors === false indicates that __amp_source_origin should not be
+ * appended to the URL to allow for potential caching or response across pages.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/GlobalFetch/fetch
+ *
  * @typedef {{
- *   body: (!JsonObject|!FormData|!FormDataWrapper|undefined|string),
+ *   body: (!JsonObject|!FormData|!FormDataWrapperInterface|undefined|string),
+ *   cache: (string|undefined),
  *   credentials: (string|undefined),
  *   headers: (!JsonObject|undefined),
  *   method: (string|undefined),
- *   requireAmpResponseSourceOrigin: (boolean|undefined),
- *   ampCors: (boolean|undefined)
+ *   ampCors: (boolean|undefined),
+ *   prerenderSafe: (boolean|undefined),
+ *   bypassInterceptorForDev: (boolean|undefined)
  * }}
  */
 var FetchInitDef;
 
-/** @constructor **/
-var FormDataWrapper = function() {};
-
-FormDataWrapper.prototype.entries = function() {};
-FormDataWrapper.prototype.getFormData = function() {};
-
 /**
- * Externed as this is constructed in the amp-form component and
- * then passed to runtime.
- * @typedef {{
- *  xhrUrl: string,
- *  fetchOpt: !FetchInitDef
- * }}
+ * Externed due to being passed across component/runtime boundary.
+ * @typedef {{xhrUrl: string, fetchOpt: !FetchInitDef}}
  */
 var FetchRequestDef;
+
+/** @constructor */
+var FormDataWrapperInterface = function() {};
+
+FormDataWrapperInterface.prototype.entries = function() {};
+FormDataWrapperInterface.prototype.getFormData = function() {};
+
+FormData.prototype.entries = function () {};
 
 /**
  * A type for Objects that can be JSON serialized or that come from
@@ -103,13 +104,44 @@ ExtensionPayload.prototype.i;
  */
 var JsonValue;
 
+/**
+ * @constructor
+ * @dict
+ */
+function VideoAnalyticsDetailsDef() {};
+/** @type {boolean} */
+VideoAnalyticsDetailsDef.prototype.autoplay;
+/** @type {number} */
+VideoAnalyticsDetailsDef.prototype.currentTime;
+/** @type {number} */
+VideoAnalyticsDetailsDef.prototype.duration;
+/** @type {number} */
+VideoAnalyticsDetailsDef.prototype.height;
+/** @type {string} */
+VideoAnalyticsDetailsDef.prototype.id;
+/** @type {string} */
+VideoAnalyticsDetailsDef.prototype.playedRangesJson;
+/** @type {number} */
+VideoAnalyticsDetailsDef.prototype.playedTotal;
+/** @type {boolean} */
+VideoAnalyticsDetailsDef.prototype.muted;
+/** @type {string} */
+VideoAnalyticsDetailsDef.prototype.state;
+/** @type {number} */
+VideoAnalyticsDetailsDef.prototype.width;
+
+
 // Node.js global
 var process = {};
 process.env;
 process.env.NODE_ENV;
 process.env.SERVE_MODE;
 
+/** @type {boolean|undefined} */
+window.IS_AMP_ALT;
+
 // Exposed to ads.
+// Preserve these filedNames so they can be accessed by 3p code.
 window.context = {};
 window.context.sentinel;
 window.context.clientId;
@@ -119,6 +151,24 @@ window.context.sourceUrl;
 window.context.experimentToggles;
 window.context.master;
 window.context.isMaster;
+window.context.ampcontextVersion;
+window.context.ampcontextFilepath
+window.context.canary;
+window.context.canonicalUrl;
+window.context.consentSharedData;
+window.context.container;
+window.context.domFingerprint;
+window.context.hidden;
+window.context.initialConsentState;
+window.context.initialConsentValue;
+window.context.location;
+window.context.mode;
+window.context.pageViewId;
+window.context.referrer;
+window.context.sourceUrl;
+window.context.startTime;
+window.context.tagName;
+
 
 // Service Holder
 window.services;
@@ -162,8 +212,10 @@ window.AMP.viewport.getScrollLeft;
 window.AMP.viewport.getScrollWidth;
 window.AMP.viewport.getWidth;
 window.AMP.attachShadowDoc;
-window.AMP.attachShadowDocAsStream
+window.AMP.attachShadowDocAsStream;
 
+window.__AMP_TOP;
+window.__AMP_PARENT;
 
 /** @constructor */
 function AmpConfigType() {}
@@ -194,6 +246,8 @@ AmpConfigType.prototype.canary;
 AmpConfigType.prototype.runtime;
 /* @public {boolean} */
 AmpConfigType.prototype.test;
+/* @public {string|undefined} */
+AmpConfigType.prototype.spt;
 
 /** @type {!AmpConfigType}  */
 window.AMP_CONFIG;
@@ -226,16 +280,19 @@ function IframeTransportContext() {}
 IframeTransportContext.onAnalyticsEvent;
 IframeTransportContext.sendResponseToCreative;
 
+/** @typedef {function(!JsonObject)} */
+let VegaChartFactory;
+
 // amp-viz-vega related externs.
 /**
- * @typedef {{spec: function(!JsonObject, function())}}
+ * @typedef {{spec: function(!JsonObject, function(?Error, !VegaChartFactory))}}
  */
 let VegaParser;
 /**
  * @typedef {{parse: VegaParser}}
  */
 let VegaObject;
-/* @type {VegaObject} */
+/* @type {!VegaObject} */
 window.vg;
 
 // amp-date-picker externs
@@ -243,21 +300,34 @@ window.vg;
  * @type {function(*)}
  */
 let ReactRender = function() {};
+let RRule;
+/**
+ * @param {Date} unusedDt
+ * @param {boolean} unusedInc
+ * @return {?Date}
+ */
+RRule.prototype.before = function(unusedDt, unusedInc) {};
+/**
+ * @param {Date} unusedDt
+ * @param {boolean} unusedInc
+ * @return {?Date}
+ */
+RRule.prototype.after = function(unusedDt, unusedInc) {};
 
 /**
- * @struct
+ * @dict
  */
 let PropTypes = {};
 
 /**
- * @struct
+ * @@dict
  */
 let ReactDates = {};
 
 /** @constructor */
 ReactDates.DayPickerSingleDateController;
 
-/** @struct */
+/** @dict */
 ReactDates.DayPickerRangeController;
 
 /** @type {function(*):boolean} */
@@ -270,7 +340,7 @@ ReactDates.isInclusivelyBeforeDay;
 ReactDates.isSameDay;
 
 /**
- * @struct
+ * @dict
  */
 let ReactDatesConstants = {};
 
@@ -280,6 +350,32 @@ ReactDatesConstants.ANCHOR_LEFT;
 /** @const {string} */
 ReactDatesConstants.HORIZONTAL_ORIENTATION;
 
+// amp-inputmask externs
+/**
+ * @constructor
+ */
+var Inputmask = class {};
+
+/** @param {!Object} unusedOpts */
+Inputmask.extendAliases = function (unusedOpts) {};
+
+/** @param {!Object} unusedOpts */
+Inputmask.extendDefaults = function (unusedOpts) {};
+
+/** @param {!Element} unusedElement */
+Inputmask.prototype.mask = function (unusedElement) {};
+
+Inputmask.prototype.remove = function () {};
+
+/** @dict */
+window.AMP.dependencies = {};
+
+/**
+ * @param {!Element} unusedElement
+ * @return {!Inputmask}
+ */
+window.AMP.dependencies.inputmaskFactory = function(unusedElement) {};
+
 // Should have been defined in the closure compiler's extern file for
 // IntersectionObserverEntry, but appears to have been omitted.
 IntersectionObserverEntry.prototype.rootBounds;
@@ -288,12 +384,6 @@ IntersectionObserverEntry.prototype.rootBounds;
 window.PerformancePaintTiming;
 window.PerformanceObserver;
 Object.prototype.entryTypes
-
-// Externed explicitly because this private property is read across
-// binaries.
-Element.prototype.implementation_ = {};
-Element.prototype.signals;
-window.whenSignal;
 
 /** @typedef {number}  */
 var time;
@@ -310,6 +400,37 @@ var UnlistenDef;
  * @typedef {!Element}
  */
 var AmpElement;
+
+/** @return {!Signals} */
+AmpElement.prototype.signals = function() {};
+
+var Signals = class {};
+/**
+  * @param {string} unusedName
+  * @return {number|!Error|null}
+  */
+Signals.prototype.get = function(unusedName) {};
+
+/**
+  * @param {string} unusedName
+  * @return {!Promise<time>}
+  */
+Signals.prototype.whenSignal = function(unusedName) {};
+
+/**
+  * @param {string} unusedName
+  * @param {time=} unusedOpt_time
+  */
+Signals.prototype.signal = function(unusedName, unusedOpt_time) {};
+
+/**
+  * @param {string} unusedName
+  * @param {!Error} unusedError
+  */
+Signals.prototype.rejectSignal = function(unusedName, unusedError) {};
+
+/** @param {string} unusedName */
+Signals.prototype.reset = function(unusedName) {};
 
 // Temp until we figure out forward declarations
 /** @constructor */
@@ -495,31 +616,6 @@ AMP.AmpAdUIHandler = class {
   constructor(baseInstance) {}
 };
 
-/*
-     \   \  /  \  /   / /   \     |   _  \     |  \ |  | |  | |  \ |  |  /  _____|
- \   \/    \/   / /  ^  \    |  |_)  |    |   \|  | |  | |   \|  | |  |  __
-  \            / /  /_\  \   |      /     |  . `  | |  | |  . `  | |  | |_ |
-   \    /\    / /  _____  \  |  |\  \----.|  |\   | |  | |  |\   | |  |__| |
-    \__/  \__/ /__/     \__\ | _| `._____||__| \__| |__| |__| \__|  \______|
-
-  Any private property for BaseElement should be declared in
-  build-system/amp.extern.js, this is so closure compiler doesn't rename
-  the private properties of BaseElement since if it did there is a
-  possibility that the private property's new symbol in the core compilation
-  unit would collide with a renamed private property in the inheriting class
-  in extensions.
- */
-var SomeBaseElementLikeClass;
-SomeBaseElementLikeClass.prototype.layout_;
-
-/** @type {number} */
-SomeBaseElementLikeClass.prototype.layoutWidth_;
-
-/** @type {boolean} */
-SomeBaseElementLikeClass.prototype.inViewport_;
-
-SomeBaseElementLikeClass.prototype.actionMap_;
-
 AMP.BaseTemplate;
 
 AMP.RealTimeConfigManager;
@@ -606,6 +702,12 @@ let BindEvaluateBindingsResultDef;
  * @typedef {{result: BindExpressionResultDef, error: ?BindEvaluatorErrorDef}}
  */
 let BindEvaluateExpressionResultDef;
+
+/**
+ * Options for Bind.rescan().
+ * @typedef {{update: (boolean|undefined), fast: (boolean|undefined), timeout: (number|undefined)}}
+ */
+let BindRescanOptionsDef;
 
 /////////////////////////////
 ////// Web Anmomation externs
@@ -735,3 +837,8 @@ var WebAnimationSelectorDef;
  * }}
  */
 var WebAnimationSubtargetDef;
+
+var ampInaboxPositionObserver;
+ampInaboxPositionObserver.observe;
+ampInaboxPositionObserver.getTargetRect;
+ampInaboxPositionObserver.getViewportRect;

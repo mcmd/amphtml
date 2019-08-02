@@ -20,11 +20,10 @@ import {
   getStoreService,
 } from './amp-story-store-service';
 import {Layout} from '../../../src/layout';
-import {Services} from '../../../src/services';
 import {assertHttpsUrl} from '../../../src/url';
 import {
   closest,
-  closestByTag,
+  closestAncestorElementBySelector,
   copyChildren,
   removeChildren,
 } from '../../../src/dom';
@@ -33,7 +32,6 @@ import {htmlFor} from '../../../src/static-template';
 import {isArray, isObject} from '../../../src/types';
 import {parseJson} from '../../../src/json';
 import {setImportantStyles} from '../../../src/style';
-
 
 /** @const {string} */
 const TAG = 'amp-story-access';
@@ -89,9 +87,6 @@ export class AmpStoryAccess extends AMP.BaseElement {
   constructor(element) {
     super(element);
 
-    /** @const @private {!../../../src/service/action-impl.ActionService} */
-    this.actions_ = Services.actionServiceForDoc(this.element);
-
     /** @private {?Element} */
     this.containerEl_ = null;
 
@@ -109,9 +104,11 @@ export class AmpStoryAccess extends AMP.BaseElement {
     const drawerEl = this.renderDrawerEl_();
 
     this.containerEl_ = dev().assertElement(
-        drawerEl.querySelector('.i-amphtml-story-access-container'));
+      drawerEl.querySelector('.i-amphtml-story-access-container')
+    );
     const contentEl = dev().assertElement(
-        drawerEl.querySelector('.i-amphtml-story-access-content'));
+      drawerEl.querySelector('.i-amphtml-story-access-content')
+    );
 
     copyChildren(this.element, contentEl);
     removeChildren(this.element);
@@ -136,10 +133,13 @@ export class AmpStoryAccess extends AMP.BaseElement {
       this.onAccessStateChange_(isAccess);
     });
 
-    this.storeService_
-        .subscribe(StateProperty.CURRENT_PAGE_INDEX, currentPageIndex => {
-          this.onCurrentPageIndexChange_(currentPageIndex);
-        }, true /** callToInitialize */);
+    this.storeService_.subscribe(
+      StateProperty.CURRENT_PAGE_INDEX,
+      currentPageIndex => {
+        this.onCurrentPageIndexChange_(currentPageIndex);
+      },
+      true /** callToInitialize */
+    );
 
     this.element.addEventListener('click', event => this.onClick_(event));
   }
@@ -172,6 +172,7 @@ export class AmpStoryAccess extends AMP.BaseElement {
   /**
    * Handles click events and maybe closes the paywall.
    * @param {!Event} event
+   * @return {*} TODO(#23582): Specify return type
    * @private
    */
   onClick_(event) {
@@ -222,9 +223,9 @@ export class AmpStoryAccess extends AMP.BaseElement {
         const logoSrc = this.getLogoSrc_();
 
         if (logoSrc) {
-          const logoEl =
-              dev().assertElement(
-                  drawerEl.querySelector('.i-amphtml-story-access-logo'));
+          const logoEl = dev().assertElement(
+            drawerEl.querySelector('.i-amphtml-story-access-logo')
+          );
           setImportantStyles(logoEl, {'background-image': `url(${logoSrc})`});
         }
 
@@ -234,8 +235,11 @@ export class AmpStoryAccess extends AMP.BaseElement {
         return getNotificationTemplate(this.element);
         break;
       default:
-        user().error(TAG, 'Unknown "type" attribute, expected one of: ' +
-            'blocking, notification.');
+        user().error(
+          TAG,
+          'Unknown "type" attribute, expected one of: ' +
+            'blocking, notification.'
+        );
     }
   }
 
@@ -246,14 +250,17 @@ export class AmpStoryAccess extends AMP.BaseElement {
    * @private
    */
   getLogoSrc_() {
-    const storyEl =
-            dev().assertElement(closestByTag(this.element, 'AMP-STORY'));
+    const storyEl = dev().assertElement(
+      closestAncestorElementBySelector(this.element, 'AMP-STORY')
+    );
     const logoSrc = storyEl && storyEl.getAttribute('publisher-logo-src');
 
-    logoSrc ?
-      assertHttpsUrl(logoSrc, storyEl, 'publisher-logo-src') :
-      user().warn(
-          TAG, 'Expected "publisher-logo-src" attribute on <amp-story>');
+    logoSrc
+      ? assertHttpsUrl(logoSrc, storyEl, 'publisher-logo-src')
+      : user().warn(
+          TAG,
+          'Expected "publisher-logo-src" attribute on <amp-story>'
+        );
 
     return logoSrc;
   }
@@ -272,14 +279,15 @@ export class AmpStoryAccess extends AMP.BaseElement {
    * @private
    */
   whitelistActions_() {
-    const accessEl =
-        dev().assertElement(
-            this.win.document.getElementById('amp-access'),
-            'Cannot find the amp-access configuration');
+    const accessEl = dev().assertElement(
+      this.win.document.getElementById('amp-access'),
+      'Cannot find the amp-access configuration'
+    );
 
     // Configuration validation is handled by the amp-access extension.
-    let accessConfig =
-    /** @type {!Array|!Object} */ (parseJson(accessEl.textContent));
+    let accessConfig = /** @type {!Array|!Object} */ (parseJson(
+      accessEl.textContent
+    ));
 
     if (!isArray(accessConfig)) {
       accessConfig = [accessConfig];
@@ -288,30 +296,38 @@ export class AmpStoryAccess extends AMP.BaseElement {
       // namespace, we want to allow actions with or without namespace.
       if (accessConfig[0].namespace) {
         accessConfig.push(
-            Object.assign({}, accessConfig[0], {namespace: undefined}));
+          Object.assign({}, accessConfig[0], {namespace: undefined})
+        );
       }
     }
+
+    const actions = [];
 
     accessConfig.forEach(config => {
       const {login, namespace} = /** @type {{login, namespace}} */ (config);
 
       if (isObject(login)) {
         const types = Object.keys(login);
-        types.forEach(type => this.whitelistAction_(namespace, type));
+        types.forEach(type =>
+          actions.push(this.getActionObject_(namespace, type))
+        );
       } else {
-        this.whitelistAction_(namespace);
+        actions.push(this.getActionObject_(namespace));
       }
     });
+
+    this.storeService_.dispatch(Action.ADD_TO_ACTIONS_WHITELIST, actions);
   }
 
   /**
    * Whitelists an action for the given namespace / type pair.
    * @param {string=} namespace
    * @param {string=} type
+   * @return {*} TODO(#23582): Specify return type
    * @private
    */
-  whitelistAction_(namespace = undefined, type = undefined) {
+  getActionObject_(namespace = undefined, type = undefined) {
     const method = ['login', namespace, type].filter(s => !!s).join('-');
-    this.actions_.addToWhitelist('SCRIPT', method);
+    return {tagOrTarget: 'SCRIPT', method};
   }
 }

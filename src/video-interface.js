@@ -31,7 +31,6 @@ export const MIN_VISIBILITY_RATIO_FOR_AUTOPLAY = 0.5;
  * @interface
  */
 export class VideoInterface {
-
   /**
    * Whether the component supports video playback in the current platform.
    * If false, component will be not treated as a video component.
@@ -157,8 +156,13 @@ export class VideoInterface {
    * @return {boolean}
    */
   isFullscreen() {}
-}
 
+  /**
+   * Seeks the video to a specified time.
+   * @param {number} unusedTimeSeconds
+   */
+  seekTo(unusedTimeSeconds) {}
+}
 
 /**
  * Attributes
@@ -166,7 +170,7 @@ export class VideoInterface {
  * Components implementing the VideoInterface are expected to support
  * the following attributes.
  *
- * @constant {!Object<string, string>}
+ * @const {!Object<string, string>}
  */
 export const VideoAttributes = {
   /**
@@ -175,7 +179,7 @@ export const VideoAttributes = {
    * Whether the developer has configured autoplay on the component.
    * This is normally done by setting `autoplay` attribute on the component.
    *
-   * AMP runtime manages autoplay behaviour itself using methods such as `play`,
+   * AMP runtime manages autoplay behavior itself using methods such as `play`,
    * `pause`, `showControls`, `hideControls`, `mute`, etc.. therefore components
    * should not propagate the autoplay attribute to the underlying player
    * implementation.
@@ -218,14 +222,13 @@ export const VideoAttributes = {
   NO_AUDIO: 'noaudio',
 };
 
-
 /**
  * Events
  *
  * Components implementing the VideoInterface are expected to dispatch
  * the following DOM events.
  *
- * @constant {!Object<string, string>}
+ * @const {!Object<string, string>}
  */
 export const VideoEvents = {
   /**
@@ -247,6 +250,15 @@ export const VideoEvents = {
    * @event load
    */
   LOAD: 'load',
+
+  /**
+   * loadedmetadata
+   *
+   * Fired when the video's metadata becomes available (e.g. duration).
+   *
+   * @event loadedmetadata
+   */
+  LOADEDMETADATA: 'loadedmetadata',
 
   /**
    * playing
@@ -340,6 +352,8 @@ export const VideoEvents = {
   AD_END: 'ad_end',
 };
 
+/** @typedef {string} */
+export let PlayingStateDef;
 
 /**
  * Playing States
@@ -347,7 +361,7 @@ export const VideoEvents = {
  * Internal playing states used to distinguish between video playing on user's
  * command and videos playing automatically
  *
- * @constant {!Object<string, string>}
+ * @const {!Object<string, PlayingStateDef>}
  */
 export const PlayingStates = {
   /**
@@ -378,7 +392,6 @@ export const PlayingStates = {
    */
   PAUSED: 'paused',
 };
-
 
 /** @enum {string} */
 export const VideoAnalyticsEvents = {
@@ -436,25 +449,25 @@ export const VideoAnalyticsEvents = {
    * @event video-session-visible
    */
   SECONDS_PLAYED: 'video-seconds-played',
+
+  /**
+   * video-hosted-custom
+   *
+   * Indicates that a custom event incoming from a 3p frame is to be logged.
+   * @property {!VideoAnalyticsDetailsDef} details
+   * @event video-custom
+   */
+  CUSTOM: 'video-hosted-custom',
+
+  /**
+   * video-percentage-played
+   *
+   * Indicates that a percentage interval has been played.
+   * @property {!VideoAnalyticsDetailsDef} details
+   * @event video-custom
+   */
+  PERCENTAGE_PLAYED: 'video-percentage-played',
 };
-
-
-/**
- * @typedef {{
- *   autoplay: boolean,
- *   currentTime: number,
- *   duration: number,
- *   height: number,
- *   id: string,
- *   playedRangesJson: string,
- *   playedTotal: number,
- *   muted: boolean,
- *   state: string,
- *   width: number
- * }}
- */
-export let VideoAnalyticsDetailsDef;
-
 
 /**
  * Helper union type to be used internally, so that the compiler treats
@@ -466,3 +479,27 @@ export let VideoAnalyticsDetailsDef;
  * @typedef {!VideoInterface|!./base-element.BaseElement}
  */
 export let VideoOrBaseElementDef;
+
+/**
+ * @param {!Element} element
+ * @return {boolean}
+ */
+export function isDockable(element) {
+  return element.hasAttribute(VideoAttributes.DOCK);
+}
+
+/** @enum {string} */
+export const VideoServiceSignals = {
+  USER_INTERACTED: 'user-interacted',
+  AUTOPLAY_DELEGATED: 'autoplay-delegated',
+};
+
+/** @param {!AmpElement|!VideoOrBaseElementDef} video */
+export function delegateAutoplay(video) {
+  video.signals().signal(VideoServiceSignals.AUTOPLAY_DELEGATED);
+}
+
+/** @param {!AmpElement|!VideoOrBaseElementDef} video */
+export function userInteractedWith(video) {
+  video.signals().signal(VideoServiceSignals.USER_INTERACTED);
+}

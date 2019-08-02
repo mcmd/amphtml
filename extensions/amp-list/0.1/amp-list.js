@@ -14,11 +14,17 @@
  * limitations under the License.
  */
 
-import * as setDOM from 'set-dom/src/index';
 import {ActionTrust} from '../../../src/action-constants';
 import {AmpEvents} from '../../../src/amp-events';
+import {CSS} from '../../../build/amp-list-0.1.css';
 import {Deferred} from '../../../src/utils/promise';
-import {Layout, isLayoutSizeDefined} from '../../../src/layout';
+import {
+  Layout,
+  getLayoutClass,
+  isLayoutSizeDefined,
+  parseLayout,
+} from '../../../src/layout';
+import {LoadMoreService} from './service/load-more-service';
 import {Pass} from '../../../src/pass';
 import {Services} from '../../../src/services';
 import {SsrTemplateHelper} from '../../../src/ssr-template-helper';
@@ -27,35 +33,50 @@ import {
   batchFetchJsonFor,
   requestForBatchFetch,
 } from '../../../src/batched-json';
-import {createCustomEvent} from '../../../src/event-helper';
-import {dev, user} from '../../../src/log';
+import {createCustomEvent, listen} from '../../../src/event-helper';
+import {dev, devAssert, user, userAssert} from '../../../src/log';
 import {dict} from '../../../src/utils/object';
 import {getMode} from '../../../src/mode';
 import {getSourceOrigin} from '../../../src/url';
-import {isArray} from '../../../src/types';
-import {isExperimentOn} from '../../../src/experiments';
-import {removeChildren} from '../../../src/dom';
-import {setStyles, toggle} from '../../../src/style';
+import {getValueForExpr} from '../../../src/json';
 import {
+  getViewerAuthTokenIfAvailable,
   setupAMPCors,
+  setupInput,
   setupJsonFetchInit,
 } from '../../../src/utils/xhr-utils';
+import {isArray, toArray} from '../../../src/types';
+import {isExperimentOn} from '../../../src/experiments';
+import {px, setStyles, toggle} from '../../../src/style';
+import {removeChildren} from '../../../src/dom';
+import {setDOM} from '../../../third_party/set-dom/set-dom';
 
 /** @const {string} */
 const TAG = 'amp-list';
+
+/** @typedef {{
+  data:(?JsonObject|string|undefined|!Array),
+  resolver:!Function,
+  rejecter:!Function,
+  append:boolean,
+  payload: (?JsonObject|Array<JsonObject>),
+}} */
+export let RenderItems;
 
 /**
  * The implementation of `amp-list` component. See {@link ../amp-list.md} for
  * the spec.
  */
 export class AmpList extends AMP.BaseElement {
-
   /** @param {!AmpElement} element */
   constructor(element) {
     super(element);
 
     /** @private {?Element} */
     this.container_ = null;
+
+    /** @private {?../../../src/service/viewport/viewport-impl.Viewport} */
+    this.viewport_ = null;
 
     /** @private {boolean} */
     this.fallbackDisplayed_ = false;
@@ -70,9 +91,12 @@ export class AmpList extends AMP.BaseElement {
     /**
      * Latest fetched items to render and the promise resolver and rejecter
      * to be invoked on render success or fail, respectively.
-     * @private {?{data:(?JsonObject|string|undefined|!Array), resolver:!Function, rejecter:!Function}}
+     * @private {?RenderItems}
      */
     this.renderItems_ = null;
+
+    /** @private {?Array} */
+    this.renderedItems_ = null;
 
     /** @const {!../../../src/service/template-impl.Templates} */
     this.templates_ = Services.templatesFor(this.win);
@@ -92,16 +116,43 @@ export class AmpList extends AMP.BaseElement {
     /** @private {?../../../extensions/amp-bind/0.1/bind-impl.Bind} */
     this.bind_ = null;
 
-    this.registerAction('refresh', () => {
-      if (this.layoutCompleted_) {
-        this.resetIfNecessary_();
-        return this.fetchList_();
-      }
-    }, ActionTrust.HIGH);
+    /** @private {boolean} */
+    this.loadMoreEnabled_ = false;
+
+    /** @private {?./service/load-more-service.LoadMoreService} */
+    this.loadMoreService_ = null;
+
+    /** @private {?string} */
+    this.loadMoreSrc_ = null;
+
+    /**@private {boolean} */
+    this.resizeFailed_ = false;
+
+    /**@private {?UnlistenDef} */
+    this.unlistenAutoLoadMore_ = null;
+
+    this.registerAction(
+      'refresh',
+      () => {
+        if (this.layoutCompleted_) {
+          this.resetIfNecessary_();
+          return this.fetchList_(
+            /* opt_append */ false,
+            /* opt_refresh */ true
+          );
+        }
+      },
+      ActionTrust.HIGH
+    );
+
+    this.registerAction(
+      'changeToLayoutContainer',
+      () => this.changeToLayoutContainer_(),
+      ActionTrust.HIGH
+    );
 
     /** @private {?../../../src/ssr-template-helper.SsrTemplateHelper} */
     this.ssrTemplateHelper_ = null;
-
   }
 
   /** @override */
@@ -111,9 +162,15 @@ export class AmpList extends AMP.BaseElement {
 
   /** @override */
   buildCallback() {
+    this.viewport_ = this.getViewport();
     const viewer = Services.viewerForDoc(this.getAmpDoc());
     this.ssrTemplateHelper_ = new SsrTemplateHelper(
-        TAG, viewer, this.templates_);
+      TAG,
+      viewer,
+      this.templates_
+    );
+
+    this.loadMoreEnabled_ = this.element.hasAttribute('load-more');
 
     // Store this in buildCallback() because `this.element` sometimes
     // is missing attributes in the constructor.
@@ -124,6 +181,18 @@ export class AmpList extends AMP.BaseElement {
 
     if (!this.element.hasAttribute('aria-live')) {
       this.element.setAttribute('aria-live', 'polite');
+    }
+
+    // auto-resize is deprecated and will be removed per deprecation schedule
+    // It will relaunched under a new attribute (resizable-children) soon.
+    // please see https://github.com/ampproject/amphtml/issues/18849
+    if (this.element.hasAttribute('auto-resize')) {
+      user().warn(
+        TAG,
+        'auto-resize attribute is deprecated and its behavior' +
+          ' is disabled. This feature will be relaunched under a new name' +
+          ' soon. Please see https://github.com/ampproject/amphtml/issues/18849'
+      );
     }
 
     Services.bindForDocOrNull(this.element).then(bind => {
@@ -139,18 +208,116 @@ export class AmpList extends AMP.BaseElement {
   /** @override */
   layoutCallback() {
     this.layoutCompleted_ = true;
+
     // If a placeholder exists and it's taller than amp-list, attempt a resize.
     const placeholder = this.getPlaceholder();
     if (placeholder) {
       this.attemptToFit_(placeholder);
     }
+
+    this.viewport_.onResize(() => {
+      this.maybeResizeListToFitItems_();
+    });
+
+    if (this.loadMoreEnabled_) {
+      this.initializeLoadMoreElements_();
+    }
+
     return this.fetchList_();
+  }
+
+  /**
+   * @return {!Promise}
+   * @private
+   */
+  initializeLoadMoreElements_() {
+    return this.mutateElement(() => {
+      this.getLoadMoreService_().initializeLoadMore();
+      const overflowElement = this.getOverflowElement();
+      if (overflowElement) {
+        toggle(overflowElement, false);
+      }
+      this.element.warnOnMissingOverflow = false;
+    }).then(() => {
+      this.adjustContainerForLoadMoreButton_();
+      listen(
+        this.getLoadMoreService_().getLoadMoreFailedClickable(),
+        'click',
+        () => this.loadMoreCallback_(/*opt_reload*/ true)
+      );
+      listen(
+        this.getLoadMoreService_().getLoadMoreButtonClickable(),
+        'click',
+        () => this.loadMoreCallback_()
+      );
+    });
+  }
+
+  /**
+   * @private
+   */
+  maybeResizeListToFitItems_() {
+    if (this.loadMoreEnabled_) {
+      this.attemptToFitLoadMore_(dev().assertElement(this.container_));
+    } else {
+      this.attemptToFit_(dev().assertElement(this.container_));
+    }
+  }
+
+  /**
+   * @return {!LoadMoreService}
+   * @private
+   */
+  getLoadMoreService_() {
+    if (!this.loadMoreService_) {
+      this.loadMoreService_ = new LoadMoreService(this.element);
+    }
+    return this.loadMoreService_;
+  }
+
+  /**
+   * This function is called at layout time if the amp-list has the
+   * load-more attribute. This increases the height of the amp-list by
+   * the height of the load-more button and forces the contents to allow
+   * space for the button.
+   * @private
+   * @return {!Promise}
+   */
+  adjustContainerForLoadMoreButton_() {
+    let buttonHeight;
+    let listHeight;
+    return this.measureMutateElement(
+      /* measurer */ () => {
+        buttonHeight = this.getLoadMoreService_().getLoadMoreButton()
+          ./*OK*/ offsetHeight;
+        listHeight = this.element./*OK*/ offsetHeight;
+      },
+      /* mutator */ () => {
+        setStyles(dev().assertElement(this.container_), {
+          'max-height': `calc(100% - ${px(buttonHeight)})`,
+        });
+        this.element./*OK*/ changeSize(listHeight + buttonHeight);
+      }
+    );
   }
 
   /** @override */
   mutatedAttributesCallback(mutations) {
-    dev().info(TAG, 'mutate:', mutations);
+    dev().info(TAG, 'mutate:', this.element, mutations);
     let promise;
+
+    /**
+     * @param {!Array|!Object} data
+     * @return {!Promise}
+     */
+    const renderLocalData = data => {
+      // Remove the 'src' now that local data is used to render the list.
+      this.element.setAttribute('src', '');
+      const array = /** @type {!Array} */ (isArray(data) ? data : [data]);
+      this.resetIfNecessary_(/* isFetch */ false);
+      return this.scheduleRender_(array, /* append */ false);
+    };
+
     const src = mutations['src'];
     const state = /** @type {!JsonObject} */ (mutations)['state'];
     if (src !== undefined) {
@@ -161,18 +328,20 @@ export class AmpList extends AMP.BaseElement {
           promise = this.fetchList_();
         }
       } else if (typeof src === 'object') {
-        // Remove the 'src' now that local data is used to render the list.
-        this.element.setAttribute('src', '');
-        this.resetIfNecessary_(/* isFetch */ false);
-        promise = this.scheduleRender_(isArray(src) ? src : [src]);
+        promise = renderLocalData(src);
       } else {
         this.user().error(TAG, 'Unexpected "src" type: ' + src);
       }
     } else if (state !== undefined) {
       user().error(TAG, '[state] is deprecated, please use [src] instead.');
-      this.resetIfNecessary_(/* isFetch */ false);
-      promise = this.scheduleRender_(isArray(state) ? state : [state]);
+      promise = renderLocalData(state);
     }
+
+    const isLayoutContainer = mutations['is-layout-container'];
+    if (isLayoutContainer) {
+      this.changeToLayoutContainer_();
+    }
+
     // Only return the promise for easier testing.
     if (getMode().test) {
       return promise;
@@ -196,7 +365,12 @@ export class AmpList extends AMP.BaseElement {
   createContainer_() {
     const container = this.win.document.createElement('div');
     container.setAttribute('role', 'list');
-    this.applyFillContent(container, true);
+    // In the load-more case, we allow the container to be height auto
+    // in order to reasonably make space for the load-more button and
+    // load-more related UI elements underneath.
+    if (!this.loadMoreEnabled_) {
+      this.applyFillContent(container, true);
+    }
     return container;
   }
 
@@ -243,13 +417,23 @@ export class AmpList extends AMP.BaseElement {
    * @param {boolean=} isFetch
    */
   resetIfNecessary_(isFetch = true) {
-    if ((isFetch && this.element.hasAttribute('reset-on-refresh'))
-      || this.element.getAttribute('reset-on-refresh') === 'always') {
+    if (
+      (isFetch && this.element.hasAttribute('reset-on-refresh')) ||
+      this.element.getAttribute('reset-on-refresh') === 'always'
+    ) {
       // Placeholder and loading don't need a mutate context.
       this.togglePlaceholder(true);
       this.toggleLoading(true, /* opt_force */ true);
       this.mutateElement(() => {
         this.toggleFallback_(false);
+        // Clean up bindings in children before removing them from DOM.
+        if (this.bind_) {
+          const removed = toArray(this.container_.children);
+          this.bind_.rescan(/* added */ [], removed, {
+            'fast': true,
+            'update': false,
+          });
+        }
         removeChildren(dev().assertElement(this.container_));
       });
     }
@@ -260,93 +444,168 @@ export class AmpList extends AMP.BaseElement {
    * the list has been populated with rendered list items. If the viewer is
    * capable of rendering the templates, then the fetching of the list and
    * transformation of the template is handled by the viewer.
+   * @param {boolean=} opt_append
+   * @param {boolean=} opt_refresh
    * @return {!Promise}
    * @private
    */
-  fetchList_() {
+  fetchList_(opt_append = false, opt_refresh = false) {
     if (!this.element.getAttribute('src')) {
       return Promise.resolve();
     }
     let fetch;
     if (this.ssrTemplateHelper_.isSupported()) {
-      fetch = this.ssrTemplate_();
+      fetch = this.ssrTemplate_(opt_refresh);
     } else {
       const itemsExpr = this.element.getAttribute('items') || 'items';
-      fetch = this.fetch_(itemsExpr).then(items => {
-        if (this.element.hasAttribute('single-item')) {
-          user().assert(typeof items !== 'undefined',
-              'Response must contain an array or object at "%s". %s',
-              itemsExpr, this.element);
-          if (!isArray(items)) {
-            items = [items];
-          }
+      fetch = this.prepareAndSendFetch_(opt_refresh).then(data => {
+        let items = data;
+        if (itemsExpr != '.') {
+          items = getValueForExpr(/**@type {!JsonObject}*/ (data), itemsExpr);
         }
-        user().assert(isArray(items),
-            'Response must contain an array at "%s". %s',
-            itemsExpr, this.element);
-        const maxLen = parseInt(this.element.getAttribute('max-items'), 10);
-        if (maxLen < items.length) {
-          items = items.slice(0, maxLen);
+        userAssert(
+          typeof items !== 'undefined',
+          'Response must contain an array or object at "%s". %s',
+          itemsExpr,
+          this.element
+        );
+        if (this.element.hasAttribute('single-item') && !isArray(items)) {
+          items = [items];
         }
-        return this.scheduleRender_(items);
-      }, error => {
-        throw user().createError('Error fetching amp-list', error);
+        items = user().assertArray(items);
+        if (this.element.hasAttribute('max-items')) {
+          items = this.truncateToMaxLen_(items);
+        }
+        if (this.loadMoreEnabled_) {
+          this.updateLoadMoreSrc_(/** @type {!JsonObject} */ (data));
+        }
+        return this.scheduleRender_(items, opt_append, /* opt_payload */ data);
       });
     }
-    return fetch.catch(error => this.showFallback_(error));
+
+    return fetch.catch(error => {
+      const event = error
+        ? createCustomEvent(
+            this.win,
+            `${TAG}.error`,
+            dict({'response': error.response})
+          )
+        : null;
+      const actions = Services.actionServiceForDoc(this.element);
+      actions.trigger(this.element, 'fetch-error', event, ActionTrust.LOW);
+
+      if (opt_append) {
+        throw error;
+      }
+      this.showFallbackOrThrow_(error);
+    });
+  }
+
+  /**
+   * @param {!Array<?JsonObject>} items
+   * @return {!Array<?JsonObject>}
+   * @private
+   */
+  truncateToMaxLen_(items) {
+    const maxLen = parseInt(this.element.getAttribute('max-items'), 10);
+    if (maxLen < items.length) {
+      items = items.slice(0, maxLen);
+    }
+    return items;
+  }
+
+  /**
+   * @param {!JsonObject} data
+   * @private
+   */
+  updateLoadMoreSrc_(data) {
+    const nextExpr =
+      this.element.getAttribute('load-more-bookmark') || 'load-more-src';
+    this.loadMoreSrc_ = /** @type {string} */ (getValueForExpr(data, nextExpr));
   }
 
   /**
    * Proxies the template rendering to the viewer.
+   * @param {boolean} refresh
    * @return {!Promise}
    */
-  ssrTemplate_() {
+  ssrTemplate_(refresh) {
     let request;
     // Construct the fetch init data that would be called by the viewer
     // passed in as the 'originalRequest'.
-    return requestForBatchFetch(
-        this.getAmpDoc(),
-        this.element,
-        this.getPolicy_()).then(r => {
-      request = r;
+    return requestForBatchFetch(this.element, this.getPolicy_(), refresh)
+      .then(r => {
+        request = r;
 
-      request.fetchOpt = setupAMPCors(
-          this.win, request.xhrUrl, request.fetchOpt);
-      setupJsonFetchInit(r.fetchOpt);
+        request.xhrUrl = setupInput(this.win, request.xhrUrl, request.fetchOpt);
+        request.fetchOpt = setupAMPCors(
+          this.win,
+          request.xhrUrl,
+          request.fetchOpt
+        );
+        setupJsonFetchInit(r.fetchOpt);
 
-      const attributes = dict({
-        'ampListAttributes': {
-          'items': this.element.getAttribute('items') || 'items',
-          'singleItem': this.element.getAttribute('single-item'),
-          'maxItems': this.element.getAttribute('max-items'),
+        const attributes = dict({
+          'ampListAttributes': {
+            'items': this.element.getAttribute('items') || 'items',
+            'singleItem': this.element.hasAttribute('single-item'),
+            'maxItems': this.element.getAttribute('max-items'),
+          },
+        });
+        return this.ssrTemplateHelper_.fetchAndRenderTemplate(
+          this.element,
+          request,
+          /* opt_templates */ null,
+          attributes
+        );
+      })
+      .then(
+        response => {
+          userAssert(
+            response && typeof response['html'] === 'string',
+            'Expected response with format {html: <string>}. Received: ',
+            response
+          );
+          request.fetchOpt.responseType = 'application/json';
+          return response;
         },
-      });
-      return this.ssrTemplateHelper_.fetchAndRenderTemplate(
-          this.element, request, /* opt_templates */ null, attributes);
-    }).then(response => {
-      request.fetchOpt.responseType = 'application/json';
-      this.ssrTemplateHelper_.verifySsrResponse(this.win, response, request);
-      return response['html'];
-    }, error => {
-      throw user().createError('Error proxying amp-list templates', error);
-    }).then(html => this.scheduleRender_(html));
+        error => {
+          throw user().createError('Error proxying amp-list templates', error);
+        }
+      )
+      .then(data => this.scheduleRender_(data, /* append */ false));
   }
 
   /**
    * Schedules a fetch result to be rendered in the near future.
-   * @param {!Array|?JsonObject|string|undefined} data
+   * @param {!Array|!JsonObject|undefined} data
+   * @param {boolean=} opt_append
+   * @param {JsonObject|Array<JsonObject>=} opt_payload
    * @return {!Promise}
    * @private
    */
-  scheduleRender_(data) {
-    dev().info(TAG, 'schedule:', data);
+  scheduleRender_(data, opt_append, opt_payload) {
     const deferred = new Deferred();
     const {promise, resolve: resolver, reject: rejecter} = deferred;
+
     // If there's nothing currently being rendered, schedule a render pass.
     if (!this.renderItems_) {
       this.renderPass_.schedule();
     }
-    this.renderItems_ = {data, resolver, rejecter};
+
+    this.renderItems_ = /** @type {?RenderItems} */ ({
+      data,
+      resolver,
+      rejecter,
+      append: opt_append,
+      payload: opt_payload,
+    });
+
+    if (this.renderedItems_ && opt_append) {
+      this.renderItems_.payload =
+        /** @type {(?JsonObject|Array<JsonObject>)} */ (opt_payload || {});
+    }
+
     return promise;
   }
 
@@ -357,13 +616,14 @@ export class AmpList extends AMP.BaseElement {
    */
   doRenderPass_() {
     const current = this.renderItems_;
-    dev().assert(current, 'Nothing to render.');
-    dev().info(TAG, 'pass:', current);
+
+    devAssert(current && current.data, 'Nothing to render.');
     const scheduleNextPass = () => {
       // If there's a new `renderItems_`, schedule it for render.
       if (this.renderItems_ !== current) {
         this.renderPass_.schedule(1); // Allow paint frame before next render.
       } else {
+        this.renderedItems_ = /** @type {?Array} */ (this.renderItems_.data);
         this.renderItems_ = null;
       }
     };
@@ -375,52 +635,126 @@ export class AmpList extends AMP.BaseElement {
       scheduleNextPass();
       current.rejecter();
     };
-    if (this.ssrTemplateHelper_.isSupported()) {
-      // TODO(alabiaga): This is a misleading type cast. Instead, we should use
-      // a new API on template-impl.js and amp-mustache.js as discussed.
-      const html = /** @type {!JsonObject} */ (current.data);
-      this.templates_.findAndRenderTemplate(this.element, html)
-          .then(element => this.render_([element]))
-          .then(onFulfilledCallback, onRejectedCallback);
-    } else {
-      const array = /** @type {!Array} */ (current.data);
-      this.templates_.findAndRenderTemplateArray(this.element, array)
-          .then(results => this.updateBindings_(results))
-          .then(elements => this.render_(elements))
-          .then(onFulfilledCallback, onRejectedCallback);
+    const isSSR = this.ssrTemplateHelper_.isSupported();
+    let renderPromise = this.ssrTemplateHelper_
+      .renderTemplate(this.element, current.data)
+      .then(result => this.updateBindings_(result, current.append))
+      .then(elements => this.render_(elements, current.append));
+    if (!isSSR) {
+      const payload = /** @type {!JsonObject} */ (current.payload);
+      renderPromise = renderPromise
+        .then(() => this.maybeRenderLoadMoreTemplates_(payload))
+        .then(() => this.maybeSetLoadMore_());
     }
+    renderPromise.then(onFulfilledCallback, onRejectedCallback);
+  }
+
+  /**
+   * @param {!JsonObject} data
+   * @return {!Promise}
+   * @private
+   */
+  maybeRenderLoadMoreTemplates_(data) {
+    if (this.loadMoreEnabled_) {
+      const promises = [];
+      promises.push(
+        this.maybeRenderLoadMoreElement_(
+          this.getLoadMoreService_().getLoadMoreButton(),
+          data
+        )
+      );
+      promises.push(
+        this.maybeRenderLoadMoreElement_(
+          this.getLoadMoreService_().getLoadMoreEndElement(),
+          data
+        )
+      );
+      return Promise.all(promises);
+    } else {
+      return Promise.resolve();
+    }
+  }
+
+  /**
+   * @param {?Element} elem
+   * @param {!JsonObject} data
+   * @return {!Promise}
+   * @private
+   */
+  maybeRenderLoadMoreElement_(elem, data) {
+    if (elem && this.templates_.hasTemplate(elem)) {
+      return this.templates_
+        .findAndRenderTemplate(elem, data)
+        .then(newContents => {
+          return this.mutateElement(() => {
+            removeChildren(dev().assertElement(elem));
+            elem.appendChild(newContents);
+          });
+        });
+    }
+    return Promise.resolve();
   }
 
   /**
    * Scans for, evaluates and applies any bindings in the given elements.
    * Ensures that rendered content is up-to-date with the latest bindable state.
    * Can be skipped by setting binding="no" or binding="refresh" attribute.
-   * @param {!Array<!Element>} elements
+   * @param {!Array<!Element>|!Element} elementOrElements
+   * @param {boolean} append
    * @return {!Promise<!Array<!Element>>}
    * @private
    */
-  updateBindings_(elements) {
+  updateBindings_(elementOrElements, append) {
+    const elements = /** @type {!Array<!Element>} */ (isArray(elementOrElements)
+      ? elementOrElements
+      : [elementOrElements]);
+
+    // binding=no: Always skip render-blocking update.
     const binding = this.element.getAttribute('binding');
-    // "no": Always skip binding update.
     if (binding === 'no') {
       return Promise.resolve(elements);
     }
+
+    // Early out if elements contain no bindings.
+    const hasBindings = elements.some(
+      el =>
+        el.hasAttribute('i-amphtml-binding') ||
+        !!el.querySelector('[i-amphtml-binding]')
+    );
+    if (!hasBindings) {
+      return Promise.resolve(elements);
+    }
+
+    /**
+     * @param {!../../../extensions/amp-bind/0.1/bind-impl.Bind} bind
+     * @return {!Promise<!Array<!Element>>}
+     */
     const updateWith = bind => {
+      const removedElements = append ? [] : [this.container_];
       // Forward elements to chained promise on success or failure.
-      return bind.scanAndApply(elements, [this.container_])
-          .then(() => elements, () => elements);
+      return bind
+        .rescan(elements, removedElements, {'fast': true, 'update': true})
+        .then(() => elements, () => elements);
     };
-    // "refresh": Do _not_ block on retrieval of the Bind service before the
-    // first mutation (AMP.setState).
+
+    // binding=refresh: Only do render-blocking update after initial render.
     if (binding === 'refresh') {
+      // Bind service must be available after first mutation, so don't
+      // wait on the async service getter.
       if (this.bind_ && this.bind_.signals().get('FIRST_MUTATE')) {
         return updateWith(this.bind_);
       } else {
+        // On initial render, do a non-blocking scan and don't update.
+        Services.bindForDocOrNull(this.element).then(bind => {
+          if (bind) {
+            bind.rescan(elements, [], {'fast': true, 'update': false});
+          }
+        });
         return Promise.resolve(elements);
       }
     }
-    // "always" (default): Wait for Bind to scan for and evalute any bindings
-    // in the newly rendered `elements`.
+    // binding=always (default): Wait for amp-bind to download and always
+    // do render-blocking update.
     return Services.bindForDocOrNull(this.element).then(bind => {
       if (bind) {
         return updateWith(bind);
@@ -432,13 +766,15 @@ export class AmpList extends AMP.BaseElement {
 
   /**
    * @param {!Array<!Element>} elements
+   * @param {boolean=} opt_append
+   * @return {!Promise}
    * @private
    */
-  render_(elements) {
-    dev().info(TAG, 'render:', elements);
+  render_(elements, opt_append = false) {
+    dev().info(TAG, 'render:', this.element, elements);
     const container = dev().assertElement(this.container_);
 
-    this.mutateElement(() => {
+    return this.mutateElement(() => {
       this.hideFallbackAndPlaceholder_();
 
       const diffing = isExperimentOn(this.win, 'amp-list-diffing');
@@ -447,139 +783,326 @@ export class AmpList extends AMP.BaseElement {
         this.addElementsToContainer_(elements, newContainer);
 
         // Necessary to support both browserify and CC import semantics.
-        const diff = (setDOM.default || setDOM);
+        const diff = setDOM.default || setDOM;
         // Use `i-amphtml-key` as a node key for identifying when to skip
         // DOM diffing and replace. Needed for AMP elements, for example.
         diff.KEY = 'i-amphtml-key';
         diff(container, newContainer);
       } else {
-        removeChildren(container);
+        if (!opt_append) {
+          removeChildren(container);
+        }
         this.addElementsToContainer_(elements, container);
       }
 
-      const event = createCustomEvent(this.win,
-          AmpEvents.DOM_UPDATE, /* detail */ null, {bubbles: true});
+      const event = createCustomEvent(
+        this.win,
+        AmpEvents.DOM_UPDATE,
+        /* detail */ null,
+        {bubbles: true}
+      );
       this.container_.dispatchEvent(event);
 
-      // Attempt to resize to fit new rendered contents.
-      this.attemptToFit_(this.container_, () => {
-        // If auto-resize is set, then change to container layout instead of
-        // changing height (with one exception).
-        if (this.element.hasAttribute('auto-resize')) {
-          const layout = this.element.getAttribute('layout');
-          if (layout == Layout.FLEX_ITEM) {
-            // TODO(cathyxz, #17824): Flex-item + reset-on-refresh will add
-            // an invisible loader that fills the amp-list and shoves all
-            // list items out of the amp-list.
-            return true;
-          } else if (layout !== Layout.CONTAINER) {
-            this.changeToLayoutContainer_(layout);
-          }
-          return false;
-        }
-        return true;
-      });
+      // Now that new contents have been rendered, clear pending size requests
+      // from previous calls to attemptToFit_(). Rejected size requests are
+      // saved as "pending" and are fulfilled later on 'focus' event.
+      // See resources-impl.checkPendingChangeSize_().
+      const r = this.element.getResources().getResourceForElement(this.element);
+      r.resetPendingChangeSize();
+
+      this.maybeResizeListToFitItems_();
     });
   }
 
   /**
    * Attempts to change the height of the amp-list to fit a target child.
    *
-   * If the target's height is greater than the amp-list's height, and
-   * opt_decider returns truthy (or is not provided), then attempt to change the
-   * amp-list's height to fit the target.
+   * If the target's height is greater than the amp-list's height, attempt
+   * to change the amp-list's height to fit the target.
    *
    * @param {!Element} target
-   * @param {function():boolean=} opt_decider
    * @private
    */
-  attemptToFit_(target, opt_decider) {
+  attemptToFit_(target) {
+    if (this.element.getAttribute('layout') == Layout.CONTAINER) {
+      return;
+    }
     this.measureElement(() => {
-      const scrollHeight = target./*OK*/scrollHeight;
-      const height = this.element./*OK*/offsetHeight;
-      if (scrollHeight > height) {
-        const shouldResize = !opt_decider || opt_decider();
-        if (shouldResize) {
-          this.attemptChangeHeight(scrollHeight).catch(() => {});
-        }
+      const targetHeight = target./*OK*/ scrollHeight;
+      const height = this.element./*OK*/ offsetHeight;
+      if (targetHeight > height) {
+        this.attemptChangeHeight(targetHeight).catch(() => {});
+      }
+    });
+  }
+
+  /**
+   *
+   * @param {!Element} target
+   * @private
+   */
+  attemptToFitLoadMore_(target) {
+    const element = !!this.loadMoreSrc_
+      ? this.getLoadMoreService_().getLoadMoreButton()
+      : this.getLoadMoreService_().getLoadMoreEndElement();
+    this.attemptToFitLoadMoreElement_(element, target);
+  }
+
+  /**
+   * @param {?Element} element
+   * @param {!Element} target
+   * @private
+   */
+  attemptToFitLoadMoreElement_(element, target) {
+    if (this.element.getAttribute('layout') == Layout.CONTAINER) {
+      return;
+    }
+    this.measureElement(() => {
+      const targetHeight = target./*OK*/ scrollHeight;
+      const height = this.element./*OK*/ offsetHeight;
+      const loadMoreHeight = element ? element./*OK*/ offsetHeight : 0;
+      if (targetHeight + loadMoreHeight > height) {
+        this.attemptChangeHeight(targetHeight + loadMoreHeight)
+          .then(() => {
+            this.resizeFailed_ = false;
+            // If there were not enough items to fill the list, consider
+            // automatically loading more if load-more="auto" is enabled
+            if (this.element.getAttribute('load-more') === 'auto') {
+              this.maybeLoadMoreItems_();
+            }
+            setStyles(dev().assertElement(this.container_), {
+              'max-height': '',
+            });
+          })
+          .catch(() => {
+            this.resizeFailed_ = true;
+            this.adjustContainerForLoadMoreButton_();
+          });
       }
     });
   }
 
   /**
    * Undoes previous size-defined layout, must be called in mutation context.
-   * @param {string} previousLayout
+   * @param {string} layoutString
+   * @see src/layout.js
    */
-  undoPreviousLayout_(previousLayout) {
-    switch (previousLayout) {
-      case Layout.RESPONSIVE:
-        this.element.classList.remove('i-amphtml-layout-responsive');
-        break;
-      case Layout.FIXED:
-        this.element.classList.remove('i-amphtml-layout-fixed');
-        setStyles(this.element, {
-          height: '',
-        });
-        break;
-      case Layout.FIXED_HEIGHT:
-        this.element.classList.remove('i-amphtml-layout-fixed-height');
-        setStyles(this.element, {
-          height: '',
-          width: '',
-        });
-        break;
-      case Layout.INTRINSIC:
-        this.element.classList.remove('i-amphtml-layout-intrinsic');
-        break;
+  undoLayout_(layoutString) {
+    const layout = parseLayout(layoutString);
+    const layoutClass = getLayoutClass(devAssert(layout));
+    this.element.classList.remove(layoutClass, 'i-amphtml-layout-size-defined');
+
+    // TODO(amphtml): Remove [width] and [height] attributes too?
+    if (
+      [
+        Layout.FIXED,
+        Layout.FLEX_ITEM,
+        Layout.FLUID,
+        Layout.INTRINSIC,
+        Layout.RESPONSIVE,
+      ].includes(layout)
+    ) {
+      setStyles(this.element, {width: '', height: ''});
+    } else if (layout == Layout.FIXED_HEIGHT) {
+      setStyles(this.element, {height: ''});
     }
+
     // The changeSize() call removes the sizer element.
-    this.element./*OK*/changeSize();
-    this.element.classList.remove('i-amphtml-layout-size-defined');
+    this.element./*OK*/ changeSize();
   }
 
   /**
-   * Converts the amp-list to de facto layout container. Must be called in
-   * mutation context.
-   * @param {string} previousLayout
+   * Converts the amp-list to de facto layout container. Called in mutate
+   * context.
+   * @return {!Promise}
    * @private
    */
-  changeToLayoutContainer_(previousLayout) {
-    this.undoPreviousLayout_(previousLayout);
-    this.container_.classList.remove(
+  changeToLayoutContainer_() {
+    const previousLayout = this.element.getAttribute('i-amphtml-layout');
+    // If we have already changed to layout container, no need to run again.
+    if (previousLayout == Layout.CONTAINER) {
+      return Promise.resolve();
+    }
+    return this.mutateElement(() => {
+      this.undoLayout_(previousLayout);
+      this.container_.classList.remove(
         'i-amphtml-fill-content',
         'i-amphtml-replaced-content'
-    );
-    // The overflow element is generally hidden with visibility hidden,
-    // but after changing to layout container, this causes an undesirable
-    // empty white space so we hide it with display none instead.
-    const overflowElement = this.getOverflowElement();
-    if (overflowElement) {
-      toggle(overflowElement, false);
-    }
-
-    this.element.setAttribute('layout', 'container');
+      );
+      // The overflow element is generally hidden with visibility hidden,
+      // but after changing to layout container, this causes an undesirable
+      // empty white space so we hide it with "display: none" instead.
+      const overflowElement = this.getOverflowElement();
+      if (overflowElement) {
+        toggle(overflowElement, false);
+      }
+      this.element.setAttribute('layout', 'container');
+      this.element.setAttribute('i-amphtml-layout', 'container');
+      this.element.classList.add('i-amphtml-layout-container');
+    });
   }
 
   /**
-   * @param {string} itemsExpr
+   * @return {!Promise}
    * @private
    */
-  fetch_(itemsExpr) {
-    return batchFetchJsonFor(
-        this.getAmpDoc(), this.element, itemsExpr, this.getPolicy_());
+  maybeSetLoadMore_() {
+    if (this.loadMoreEnabled_) {
+      return this.setLoadMore_();
+    }
+    return Promise.resolve();
   }
 
   /**
-   * return {!UrlReplacementPolicy}
+   * @return {!Promise}
+   * @private
+   */
+  setLoadMore_() {
+    if (this.loadMoreSrc_) {
+      const autoLoad = this.element.getAttribute('load-more') === 'auto';
+      if (autoLoad) {
+        this.setupLoadMoreAuto_();
+      }
+      return this.mutateElement(() => {
+        this.getLoadMoreService_().toggleLoadMoreLoading(false);
+        // Set back to visible because there are actually more elements
+        // to load. See comment in initializeLoadMoreButton_ for context.
+        setStyles(this.getLoadMoreService_().getLoadMoreButton(), {
+          visibility: '',
+        });
+      });
+    } else {
+      return this.mutateElement(() =>
+        this.getLoadMoreService_().setLoadMoreEnded()
+      );
+    }
+  }
+
+  /**
+   * Called when 3 viewports above bottom of automatic load-more list, or
+   * manually on clicking the load-more-button element. Sets the amp-list
+   * src to the bookmarked src and fetches data from it.
+   * @param {boolean=} opt_reload
+   * @return {!Promise}
+   * @private
+   */
+  loadMoreCallback_(opt_reload = false) {
+    if (!!this.loadMoreSrc_) {
+      this.element.setAttribute('src', this.loadMoreSrc_);
+      // Clear url to avoid repeated fetches from same url
+      this.loadMoreSrc_ = null;
+    } else if (!opt_reload) {
+      // Nothing more to load or previous fetch still inflight
+      return Promise.resolve();
+    }
+    this.mutateElement(() => {
+      this.getLoadMoreService_().toggleLoadMoreLoading(true);
+    });
+    return this.fetchList_(/* opt_append */ true)
+      .then(() => {
+        return this.mutateElement(() => {
+          if (this.loadMoreSrc_) {
+            this.getLoadMoreService_().toggleLoadMoreLoading(false);
+          } else {
+            this.getLoadMoreService_().setLoadMoreEnded();
+          }
+        });
+      })
+      .then(() => {
+        // Necessary since load-more elements are toggled in the above block
+        this.attemptToFitLoadMore_(dev().assertElement(this.container_));
+      })
+      .catch(() => {
+        this.handleLoadMoreFailed_();
+      });
+  }
+
+  /**
+   * @private
+   */
+  handleLoadMoreFailed_() {
+    this.mutateElement(() =>
+      this.getLoadMoreService_().setLoadMoreFailed()
+    ).then(() => {
+      this.attemptToFitLoadMoreElement_(
+        this.getLoadMoreService_().getLoadMoreFailedElement(),
+        dev().assertElement(this.container_)
+      );
+    });
+  }
+
+  /**
+   * @param {boolean=} opt_refresh
+   * @param {string=} token
+   * @return {!Promise<!JsonObject|!Array<JsonObject>>}
+   * @private
+   */
+  fetch_(opt_refresh = false, token = undefined) {
+    return batchFetchJsonFor(
+      this.getAmpDoc(),
+      this.element,
+      '.',
+      this.getPolicy_(),
+      opt_refresh,
+      token
+    );
+  }
+
+  /**
+   * @private
+   */
+  setupLoadMoreAuto_() {
+    if (!this.unlistenAutoLoadMore_) {
+      this.unlistenAutoLoadMore_ = this.viewport_.onChanged(() =>
+        this.maybeLoadMoreItems_()
+      );
+    }
+  }
+
+  /**
+   * If the bottom of the list is within three viewports of the current
+   * viewport, then load more items.
+   * @private
+   */
+  maybeLoadMoreItems_() {
+    if (this.resizeFailed_) {
+      return;
+    }
+    const endoOfListMarker = this.container_.lastChild || this.container_;
+
+    this.viewport_
+      .getClientRectAsync(dev().assertElement(endoOfListMarker))
+      .then(positionRect => {
+        const viewportHeight = this.viewport_.getHeight();
+        if (3 * viewportHeight > positionRect.bottom) {
+          return this.loadMoreCallback_();
+        }
+      });
+  }
+
+  /**
+   * @param {boolean=} opt_refresh
+   * @return {!Promise<!JsonObject|!Array<JsonObject>>}
+   * @private
+   */
+  prepareAndSendFetch_(opt_refresh = false) {
+    return getViewerAuthTokenIfAvailable(this.element).then(token =>
+      this.fetch_(opt_refresh, token)
+    );
+  }
+
+  /**
+   * @return {!UrlReplacementPolicy}
    */
   getPolicy_() {
     const src = this.element.getAttribute('src');
     // Require opt-in for URL variable replacements on CORS fetches triggered
     // by [src] mutation. @see spec/amp-var-substitutions.md
     let policy = UrlReplacementPolicy.OPT_IN;
-    if (src == this.initialSrc_ ||
-       (getSourceOrigin(src)
-           == getSourceOrigin(this.getAmpDoc().win.location))) {
+    if (
+      src == this.initialSrc_ ||
+      getSourceOrigin(src) == getSourceOrigin(this.getAmpDoc().win.location)
+    ) {
       policy = UrlReplacementPolicy.ALL;
     }
     return policy;
@@ -602,7 +1125,7 @@ export class AmpList extends AMP.BaseElement {
    * @throws {!Error} If fallback element is not present.
    * @private
    */
-  showFallback_(error) {
+  showFallbackOrThrow_(error) {
     this.toggleLoading(false);
     if (this.getFallback()) {
       this.toggleFallback_(true);
@@ -614,5 +1137,5 @@ export class AmpList extends AMP.BaseElement {
 }
 
 AMP.extension(TAG, '0.1', AMP => {
-  AMP.registerElement(TAG, AmpList);
+  AMP.registerElement(TAG, AmpList, CSS);
 });

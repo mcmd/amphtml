@@ -1,3 +1,10 @@
+---
+$category@: dynamic-content
+formats:
+  - websites
+teaser:
+  text: Provides a calendar widget to select dates.
+---
 <!---
 Copyright 2018 The AMP HTML Authors. All Rights Reserved.
 
@@ -14,7 +21,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# <a name="amp-date-picker"></a> `amp-date-picker`
+# amp-date-picker
 
 [TOC]
 
@@ -28,7 +35,7 @@ limitations under the License.
     <td><code>&lt;script async custom-element="amp-date-picker" src="https://cdn.ampproject.org/v0/amp-date-picker-0.1.js">&lt;/script></code></td>
   </tr>
   <tr>
-    <td class="col-fourty"><strong><a href="https://www.ampproject.org/docs/guides/responsive/control_layout.html">Supported Layouts</a></strong></td>
+    <td class="col-fourty"><strong><a href="https://amp.dev/documentation/guides-and-tutorials/develop/style_and_layout/control_layout">Supported Layouts</a></strong></td>
     <td><ul>
       <li>For static mode: <code>fixed</code>, <code>fixed-height</code>, <code>responsive</code>, <code>fill</code> or <code>flex-item</code></li>
       <li>For overlay mode: <code>container</code></li>
@@ -36,7 +43,7 @@ limitations under the License.
   </tr>
   <tr>
     <td class="col-fourty"><strong>Examples</strong></td>
-    <td>See AMP By Example's <a href="https://ampbyexample.com/components/amp-date-picker/">amp-date-picker</a>.</td>
+    <td>See AMP By Example's <a href="https://amp.dev/documentation/examples/components/amp-date-picker/">amp-date-picker</a>.</td>
   </tr>
 </table>
 
@@ -92,7 +99,7 @@ By specifying `mode="static"`, the `amp-date-picker` renders a static calendar v
 
 For a static date picker, you must specify a size-defined layout, which can be one of: `fixed`, `fixed-height`, `responsive`, `fill` or `flex-item`.
 
-When the `static` amp-date-picker is rendered in a `<form>`, if there are no [inputs specified with `*input-selector`](#input-selector), the amp-date-picker creates hidden input elements (e.g., `<input type="hidden" ...`). The amp-date-picker names the elements as `date` or `start-date` and `end-date`; if those names are already used in the form, the amp-date-picker attempts to name the input fields with the `id` of the `<amp-date-picker>`.
+When the `static` amp-date-picker is rendered in a `<form>`, if there are no [inputs specified with `*input-selector`](#input-selector), the amp-date-picker creates hidden input elements (e.g., `<input type="hidden" …`). The amp-date-picker names the elements as `date` or `start-date` and `end-date`; if those names are already used in the form, the amp-date-picker attempts to name the input fields with the `id` of the `<amp-date-picker>`.
 
 *Example: static date picker in a form field*
 
@@ -161,8 +168,13 @@ This example demonstrates using a overlay date picker in a form where the user c
   </form>
 ```
 
-<!-- TODO(cvializ): talk about why type="tel" is on the inputs -->
+On touch devices, an `amp-date-picker` in overlay mode automatically adds the
+`readonly` attribute to its `<input>` elements.
+This prevents the device's on-screen keyboard from opening unncessesarily.
+To opt-out of this behavior, add the `touch-keyboard-editable` attribute to the
+`<amp-date-picker>` element.
 
+<!-- TODO(cvializ): talk about why type="tel" is on the inputs -->
 
 ## Selection types
 
@@ -208,6 +220,23 @@ and the user can select a date range with a starting date and ending date.
     <img alt="static single date picker" src="https://github.com/ampproject/amphtml/raw/master/extensions/amp-date-picker/img/amp-date-picker-range-static.png"  width="332" height="373">
   </noscript>
 </amp-img>
+
+## Date formats
+
+`amp-date-picker` attributes accept dates in ISO 8601 and RFC 5545 RRULE formats.
+
+[ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) formats dates as `YYYY-MM-DD`
+and is the standard for sharing dates between electronic systems.
+For example, ISO 8601 formats the date February 28 2018 as `2018-02-28`.
+
+[RFC 5545 Recurrence Rules (RRULEs)](https://icalendar.org/iCalendar-RFC-5545/3-3-10-recurrence-rule.html)
+standardize a format for specifying repeating dates.
+For example, RFC 5545 formats Halloween as `RRULE:FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=31`.
+More complex dates are also possible, such as the United States Thanksgiving holiday,
+which is every November on the fourth Thursday: `RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=+4TH`.
+The API is not friendly to memorize, but there are various
+[RRULE generators](https://jakubroztocil.github.io/rrule) available online.
+
 
 ## Attributes
 
@@ -299,13 +328,17 @@ an initial end date dynamically.
 
 ##### min
 
-The earliest date that the user may select.
+The earliest date that the user may select. This must be formatted as an ISO 8601 date.
 If no `min` attribute is present, the current date will be the minimum date.
+
+The `min` attribute may be updated after a user gesture with [`amp-bind`](https://amp.dev/documentation/components/amp-bind).
 
 ##### max
 
-The latest date that the user may select.
+The latest date that the user may select. This must be formatted as an ISO 8601 date.
 If no `max` attribute is present, the date picker will have no maximum date.
+
+The `max` attribute may be updated after a user gesture with [`amp-bind`](https://amp.dev/documentation/components/amp-bind).
 
 #####  month-format
 
@@ -338,6 +371,12 @@ If no `week-day-format` is present, the weekdays display as the first character 
 
 The locale to use for rendering the calendar view. The default locale is `"en"`.
 
+##### maximum-nights
+
+The number of nights that the user's selection may not exceed in a date range.
+The default is `"0"`.
+A value of `"0"` allows the user to select an unlimited number of nights.
+
 ##### minimum-nights
 
 The number of nights that the user must select in a date range. The default is `"1"`.
@@ -353,11 +392,11 @@ The day to specify as the first day of the week (0-6). The default value is `"0"
 
 ##### blocked
 
-A list of ISO 8601 dates or RFC 5545 RRULE repeating dates to prevent the user from selecting on the calendar.
+A space-separated list of ISO 8601 dates or RFC 5545 RRULE repeating dates to prevent the user from selecting on the calendar.
 
 ##### highlighted
 
-A list of ISO 8601 dates or RFC 5545 RRULE repeating dates to specially style as highlighted to draw the user's attention.
+A space-separated list of ISO 8601 dates or RFC 5545 RRULE repeating dates to specially style as highlighted to draw the user's attention.
 Default styling is a blue dot on the date.
 
 ##### day-size
@@ -375,9 +414,15 @@ document that sets a minimum height for the date picker.
 }
 ```
 
+##### allow-blocked-end-date
+
+If present, this attribute allows the user to choose an end date on the first
+blocked date after their chosen start date.
+By default, this attribute is not present.
+
 ##### allow-blocked-ranges
 
-If present, this attribute prevents the user from selecting a range with a blocked date.
+If present, this attribute allows the user to select a range containing blocked date(s).
 By default, this attribute is not present.
 
 ##### src
@@ -400,11 +445,11 @@ The following table lists the properties that you can specify in the JSON data:
 </tr>
 <tr>
 <td><code>date</code></td>
-<td>Specifies the initially selected date. In a date picker with <code>type="range"</code> this has no effect.</td>
+<td>Specifies the initially selected date. In a date picker with <code>type="range"</code> this has no effect. In order to prevent overwriting the user's input, this value has no effect if the user has already selected a date.</td>
 </tr>
 <tr>
 <td><code>endDate</code></td>
-<td>Specifies the initially selected end date. In a date picker with <code>type="single"</code> this has no effect.</td>
+<td>Specifies the initially selected end date. In a date picker with <code>type="single"</code> this has no effect. In order to prevent overwriting the user's input, this value has no effect if the user has already selected an end date.</td>
 </tr>
 <tr>
 <td><code>highlighted</code></td>
@@ -412,7 +457,7 @@ The following table lists the properties that you can specify in the JSON data:
 </tr>
 <tr>
 <td><code>startDate</code></td>
-<td>Specifies the initially selected start date for a date picker with <code>type="range"</code>. In a date picker with <code>type="single"</code> this has no effect.</td>
+<td>Specifies the initially selected start date for a date picker with <code>type="range"</code>. In a date picker with <code>type="single"</code> this has no effect. In order to prevent overwriting the user's input, this value has no effect if the user has already selected a start date.</td>
 </tr>
 <tr>
 <td><code>templates</code></td>
@@ -420,6 +465,8 @@ The following table lists the properties that you can specify in the JSON data:
 </tr>
 </tbody>
 </table>
+
+The `src` attribute may be updated after a user gesture with [`amp-bind`](https://amp.dev/documentation/components/amp-bind).
 
 ###### template definition objects
 
@@ -525,7 +572,7 @@ If present, keeps the date picker open after the user clears the date or dates. 
 
 ##### common attributes
 
-This element includes [common attributes](https://www.ampproject.org/docs/reference/common_attributes) extended to AMP components.
+This element includes [common attributes](https://amp.dev/documentation/guides-and-tutorials/learn/common_attributes) extended to AMP components.
 
 
 ## Events
@@ -533,7 +580,7 @@ This element includes [common attributes](https://www.ampproject.org/docs/refere
 These events may trigger actions on other AMP components using the `on` attribute.
 e.g. `on="activate: my-lightbox.open"`
 
-Read more about [AMP Actions and Events](https://www.ampproject.org/docs/interaction_dynamic/amp-actions-and-events).
+Read more about [AMP Actions and Events](https://amp.dev/documentation/guides-and-tutorials/learn/amp-actions-and-events).
 
 ##### activate
 
@@ -545,6 +592,62 @@ an interaction with the calendar view, i.e. when the overlay would open.
 The date picker triggers the  `deactivate` event when the user ends
 their interaction with the calendar view, i.e. when the overlay would close.
 
+##### select
+
+The date picker triggers the `select` event when the user selects a date or
+date range. When selecting a date range, the event is emitted when the end
+date and start date are both selected.
+The `select` event contains the following properties.
+
+For a single date picker:
+
+<table>
+<tr>
+<th width="30%">Property</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td>The date that was selected.</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td>The <code>id</code> attribute of the first <a href="#templates">date template</a> that applies to this date.</td>
+</tr>
+</table>
+
+```html
+<amp-date-picker type="single" on="select: AMP.setState({date: event.date, templateSelected: event.id})" …>
+  <!-- … -->
+</amp-date-picker>
+```
+
+For a date range picker:
+
+<table>
+<tr>
+<th width="30%">Property</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><code>dates</code></td>
+<td>An array of the dates that were selected. Each object in the array contains the <code>date</code> and <code>id</code> properties from the single date picker <code>change</code> event object.</td>
+</tr>
+<tr>
+<td><code>start</code></td>
+<td>A shortcut for the first date in the date range (<code>event.dates[0]</code>).
+</tr>
+<tr>
+<td><code>end</code></td>
+<td>A shortcut for the last date in the date range (<code>event.dates[event.dates.length - 1]</code>).
+</tr>
+</table>
+
+```html
+<amp-date-picker type="range" on="select: AMP.setState({dates: event.dates, firstTemplate: event.start.id})" …>
+  <!-- … -->
+</amp-date-picker>
+```
 
 ## Actions
 

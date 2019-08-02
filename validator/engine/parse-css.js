@@ -35,6 +35,7 @@ goog.provide('parse_css.extractUrls');
 goog.provide('parse_css.parseAStylesheet');
 goog.provide('parse_css.parseInlineStyle');
 goog.provide('parse_css.parseMediaQueries');
+goog.provide('parse_css.stripMinMax');
 goog.provide('parse_css.stripVendorPrefix');
 goog.require('amp.validator.ValidationError.Code');
 goog.require('goog.asserts');
@@ -142,6 +143,22 @@ parse_css.stripVendorPrefix = function(prefixedString) {
     {return prefixedString.substr('-ms-'.length);}
     if (goog.string./*OK*/ startsWith(prefixedString, '-webkit-'))
     {return prefixedString.substr('-webkit-'.length);}
+  }
+  return prefixedString;
+};
+
+/**
+ * Strips 'min-' or 'max-' from the start of a media feature identifier, if
+ * present. E.g., "min-width" -> "width".
+ * @param {string} prefixedString
+ * @return {string}
+ */
+parse_css.stripMinMax = function(prefixedString) {
+  if (goog.string./*OK*/ startsWith(prefixedString, 'min-')) {
+    return prefixedString.substr('min-'.length);
+  }
+  if (goog.string./*OK*/ startsWith(prefixedString, 'max-')) {
+    return prefixedString.substr('max-'.length);
   }
   return prefixedString;
 };
@@ -520,7 +537,7 @@ class Canonicalizer {
             tokenStream.current().copyPosTo(new parse_css.EOFToken()));
 
         /** @type {!Array<!parse_css.Token>} */
-        const contents = parse_css.extractASimpleBlock(tokenStream);
+        const contents = parse_css.extractASimpleBlock(tokenStream, errors);
 
         switch (this.blockTypeFor(rule)) {
           case parse_css.BlockType.PARSE_AS_RULES: {
@@ -543,7 +560,11 @@ class Canonicalizer {
         }
         return rule;
       }
-      consumeAComponentValue(tokenStream, rule.prelude);
+      if (!consumeAComponentValue(tokenStream, rule.prelude, /*depth*/0))
+      {errors.push(tokenStream.current().copyPosTo(
+          new parse_css.ErrorToken(
+              amp.validator.ValidationError.Code.CSS_EXCESSIVELY_NESTED,
+              ['style'])));}
     }
   }
 
@@ -581,13 +602,17 @@ class Canonicalizer {
         // This consumes declarations (ie: "color: red;" ) inside
         // a qualified rule as that rule's value.
         rule.declarations = this.parseAListOfDeclarations(
-            parse_css.extractASimpleBlock(tokenStream), errors);
+            parse_css.extractASimpleBlock(tokenStream, errors), errors);
 
         rules.push(rule);
         return;
       }
       // This consumes a CSS selector as the rules prelude.
-      consumeAComponentValue(tokenStream, rule.prelude);
+      if (!consumeAComponentValue(tokenStream, rule.prelude, /*depth*/0))
+      {errors.push(tokenStream.current().copyPosTo(
+          new parse_css.ErrorToken(
+              amp.validator.ValidationError.Code.CSS_EXCESSIVELY_NESTED,
+              ['style'])));}
     }
   }
 
@@ -628,7 +653,11 @@ class Canonicalizer {
               tokenStream.next().tokenType === parse_css.TokenType.EOF_TOKEN)) {
           tokenStream.consume();
           const dummyTokenList = [];
-          consumeAComponentValue(tokenStream, dummyTokenList);
+          if (!consumeAComponentValue(tokenStream, dummyTokenList, /*depth*/0))
+          {errors.push(tokenStream.current().copyPosTo(
+              new parse_css.ErrorToken(
+                  amp.validator.ValidationError.Code.CSS_EXCESSIVELY_NESTED,
+                  ['style'])));}
         }
       }
     }
@@ -673,7 +702,11 @@ class Canonicalizer {
       !(tokenStream.next().tokenType === parse_css.TokenType.SEMICOLON ||
           tokenStream.next().tokenType === parse_css.TokenType.EOF_TOKEN)) {
       tokenStream.consume();
-      consumeAComponentValue(tokenStream, decl.value);
+      if (!consumeAComponentValue(tokenStream, decl.value, /*depth*/0))
+      {errors.push(tokenStream.current().copyPosTo(
+          new parse_css.ErrorToken(
+              amp.validator.ValidationError.Code.CSS_EXCESSIVELY_NESTED,
+              ['style'])));}
     }
     decl.value.push(tokenStream.next().copyPosTo(new parse_css.EOFToken()));
 
@@ -702,33 +735,45 @@ class Canonicalizer {
   }
 }
 
+/** @type {number} **/
+const kMaximumCssRecursion = 100;
+
 /**
  * Consumes one or more tokens from a tokenStream, appending them to a
- * tokenList.
+ * tokenList. If exceeds depth, returns false
  * @param {!parse_css.TokenStream} tokenStream
  * @param {!Array<!parse_css.Token>} tokenList output array for tokens.
+ * @param {number} depth
+ * @return {boolean}
  */
-function consumeAComponentValue(tokenStream, tokenList) {
+function consumeAComponentValue(tokenStream, tokenList, depth) {
+  if (depth > kMaximumCssRecursion) {return false;}
   const current = tokenStream.current().tokenType;
   if (current === parse_css.TokenType.OPEN_CURLY ||
       current === parse_css.TokenType.OPEN_SQUARE ||
       current === parse_css.TokenType.OPEN_PAREN) {
-    consumeASimpleBlock(tokenStream, tokenList);
+    if (!consumeASimpleBlock(tokenStream, tokenList, depth + 1))
+    {return false;}
   } else if (current === parse_css.TokenType.FUNCTION_TOKEN) {
-    consumeAFunction(tokenStream, tokenList);
+    if (!consumeAFunction(tokenStream, tokenList, depth + 1))
+    {return false;}
   } else {
     tokenList.push(tokenStream.current());
   }
+  return true;
 }
 
 /**
  * Appends a simple block's contents to a tokenList, consuming from
  * the stream all those tokens that it adds to the tokenList,
- * including the start/end grouping token.
+ * including the start/end grouping token. If exceeds depth, returns false.
  * @param {!parse_css.TokenStream} tokenStream
  * @param {!Array<!parse_css.Token>} tokenList output array for tokens.
+ * @param {number} depth
+ * @return {boolean}
  */
-function consumeASimpleBlock(tokenStream, tokenList) {
+function consumeASimpleBlock(tokenStream, tokenList, depth) {
+  if (depth > kMaximumCssRecursion) {return false;}
   const current = tokenStream.current().tokenType;
   goog.asserts.assert(
       (current === parse_css.TokenType.OPEN_CURLY ||
@@ -746,7 +791,7 @@ function consumeASimpleBlock(tokenStream, tokenList) {
     const current = tokenStream.current().tokenType;
     if (current === parse_css.TokenType.EOF_TOKEN) {
       tokenList.push(tokenStream.current());
-      return;
+      return true;
     } else if (
       (current === parse_css.TokenType.CLOSE_CURLY ||
          current === parse_css.TokenType.CLOSE_SQUARE ||
@@ -754,9 +799,10 @@ function consumeASimpleBlock(tokenStream, tokenList) {
       /** @type {parse_css.GroupingToken} */ (tokenStream.current()).value ===
             mirror) {
       tokenList.push(tokenStream.current());
-      return;
+      return true;
     } else {
-      consumeAComponentValue(tokenStream, tokenList);
+      if (!consumeAComponentValue(tokenStream, tokenList, depth + 1))
+      {return false;}
     }
   }
 }
@@ -765,12 +811,19 @@ function consumeASimpleBlock(tokenStream, tokenList) {
  * Returns a simple block's contents in tokenStream, excluding the
  * start/end grouping token, and appended with an EOFToken.
  * @param {!parse_css.TokenStream} tokenStream
+ * @param {!Array<!parse_css.ErrorToken>} errors
  * @return {!Array<!parse_css.Token>}
  */
-parse_css.extractASimpleBlock = function(tokenStream) {
+parse_css.extractASimpleBlock = function(tokenStream, errors) {
   /** @type {!Array<!parse_css.Token>} */
   const consumedTokens = [];
-  consumeASimpleBlock(tokenStream, consumedTokens);
+  if (!consumeASimpleBlock(tokenStream, consumedTokens, /*depth*/0)) {
+    errors.push(tokenStream.current().copyPosTo(
+        new parse_css.ErrorToken(
+            amp.validator.ValidationError.Code.CSS_EXCESSIVELY_NESTED,
+            ['style'])));
+  }
+
   // A simple block always has a start token (e.g. '{') and
   // either a closing token or EOF token.
   goog.asserts.assert(consumedTokens.length >= 2);
@@ -784,11 +837,14 @@ parse_css.extractASimpleBlock = function(tokenStream) {
 /**
  * Appends a function's contents to a tokenList, consuming from the
  * stream all those tokens that it adds to the tokenList, including
- * the function token and end grouping token.
+ * the function token and end grouping token. If exceeds depth, returns false.
  * @param {!parse_css.TokenStream} tokenStream
  * @param {!Array<!parse_css.Token>} tokenList output array for tokens.
+ * @param {number} depth
+ * @return {boolean}
  */
-function consumeAFunction(tokenStream, tokenList) {
+function consumeAFunction(tokenStream, tokenList, depth) {
+  if (depth > kMaximumCssRecursion) {return false;}
   goog.asserts.assert(
       tokenStream.current().tokenType === parse_css.TokenType.FUNCTION_TOKEN,
       'Internal Error: consumeAFunction precondition not met');
@@ -799,9 +855,10 @@ function consumeAFunction(tokenStream, tokenList) {
     if (current === parse_css.TokenType.EOF_TOKEN ||
         current === parse_css.TokenType.CLOSE_PAREN) {
       tokenList.push(tokenStream.current());
-      return;
+      return true;
     } else {
-      consumeAComponentValue(tokenStream, tokenList);
+      if (!consumeAComponentValue(tokenStream, tokenList, depth + 1))
+      {return false;}
     }
   }
 }
@@ -811,12 +868,19 @@ function consumeAFunction(tokenStream, tokenList) {
  * FunctionToken, but excluding the trailing CloseParen token and
  * appended with an EOFToken instead.
  * @param {!parse_css.TokenStream} tokenStream
+ * @param {!Array<!parse_css.ErrorToken>} errors
  * @return {!Array<!parse_css.Token>}
  */
-parse_css.extractAFunction = function(tokenStream) {
+parse_css.extractAFunction = function(tokenStream, errors) {
   /** @type {!Array<!parse_css.Token>} */
   const consumedTokens = [];
-  consumeAFunction(tokenStream, consumedTokens);
+  if (!consumeAFunction(tokenStream, consumedTokens, /*depth*/0)) {
+    errors.push(tokenStream.current().copyPosTo(
+        new parse_css.ErrorToken(
+            amp.validator.ValidationError.Code.CSS_EXCESSIVELY_NESTED,
+            ['style'])));
+  }
+
   // A function always has a start FunctionToken and
   // either a CloseParenToken or EOFToken.
   goog.asserts.assert(consumedTokens.length >= 2);

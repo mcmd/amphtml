@@ -27,15 +27,12 @@ import {Gestures} from '../../../src/gesture';
 import {Layout} from '../../../src/layout';
 import {Services} from '../../../src/services';
 import {bezierCurve} from '../../../src/curve';
-import {clamp} from '../../../src/utils/math';
+import {boundValue, distance, magnitude} from '../../../src/utils/math';
 import {continueMotion} from '../../../src/motion';
 import {createCustomEvent, listen} from '../../../src/event-helper';
-import {dev, user} from '../../../src/log';
+import {dev, userAssert} from '../../../src/log';
 import {dict} from '../../../src/utils/object';
-import {
-  layoutRectFromDomRect,
-  layoutRectLtwh,
-} from '../../../src/layout-rect';
+import {layoutRectFromDomRect, layoutRectLtwh} from '../../../src/layout-rect';
 import {numeric} from '../../../src/transition';
 import {px, scale, setStyles, translate} from '../../../src/style';
 
@@ -44,16 +41,13 @@ const TAG = 'amp-pan-zoom';
 const DEFAULT_MAX_SCALE = 3;
 const MAX_ANIMATION_DURATION = 250;
 
-
 const ELIGIBLE_TAGS = {
   'svg': true,
   'DIV': true,
   'AMP-IMG': true,
   'AMP-LAYOUT': true,
+  'AMP-SELECTOR': true,
 };
-
-const SUPPORT_VALIDATION_MSG = `${TAG} should
-  have its target element as the one and only child`;
 
 /**
  * @extends {AMP.BaseElement}
@@ -63,7 +57,6 @@ export class AmpPanZoom extends AMP.BaseElement {
 
   /** @param {!AmpElement} element */
   constructor(element) {
-
     super(element);
 
     /** @private {?Element} */
@@ -168,10 +161,16 @@ export class AmpPanZoom extends AMP.BaseElement {
     this.action_ = Services.actionServiceForDoc(this.element);
     const children = this.getRealChildren();
 
-    user().assert(children.length == 1, SUPPORT_VALIDATION_MSG);
-    user().assert(
-        this.elementIsSupported_(children[0]),
-        children[0].tagName + ` is not supported by ${TAG}`
+    userAssert(
+      children.length == 1,
+      '%s should have its target element as its one and only child',
+      TAG
+    );
+    userAssert(
+      this.elementIsSupported_(children[0]),
+      '%s is not supported by %s',
+      children[0].tagName,
+      TAG
     );
     this.element.classList.add('i-amphtml-pan-zoom');
     this.content_ = children[0];
@@ -199,13 +198,15 @@ export class AmpPanZoom extends AMP.BaseElement {
    * @param {number} x
    * @param {number} y
    * @param {number} scale
+   * @return {*} TODO(#23582): Specify return type
    */
   transform(x, y, scale) {
     this.updatePanZoomBounds_(scale);
     const boundX = this.boundX_(x, /*allowExtent*/ false);
     const boundY = this.boundY_(y, /*allowExtent*/ false);
-    return this.set_(scale, boundX, boundY, /*animate*/ true)
-        .then(() => this.onZoomRelease_());
+    return this.set_(scale, boundX, boundY, /*animate*/ true).then(() =>
+      this.onZoomRelease_()
+    );
   }
 
   /** @override */
@@ -218,6 +219,10 @@ export class AmpPanZoom extends AMP.BaseElement {
   /** @override */
   layoutCallback() {
     this.createZoomButton_();
+    Services.ownersForDoc(this.element).scheduleLayout(
+      this.element,
+      dev().assertElement(this.content_)
+    );
     return this.resetContentDimensions_().then(this.setupEvents_());
   }
 
@@ -229,7 +234,10 @@ export class AmpPanZoom extends AMP.BaseElement {
   /** @override */
   resumeCallback() {
     if (this.content_) {
-      this.scheduleLayout(this.content_);
+      Services.ownersForDoc(this.element).scheduleLayout(
+        this.element,
+        this.content_
+      );
     }
     this.setupEvents_();
   }
@@ -242,10 +250,12 @@ export class AmpPanZoom extends AMP.BaseElement {
 
   /** @override */
   isLayoutSupported(layout) {
-    return layout == Layout.FIXED ||
+    return (
+      layout == Layout.FIXED ||
       layout == Layout.FIXED_HEIGHT ||
       layout == Layout.FILL ||
-      layout == Layout.RESPONSIVE;
+      layout == Layout.RESPONSIVE
+    );
   }
 
   /**
@@ -309,17 +319,20 @@ export class AmpPanZoom extends AMP.BaseElement {
     let height = Math.min(heightToFit, this.elementBox_.height);
     let width = Math.min(widthToFit, this.elementBox_.width);
 
-    if (Math.abs(width - this.sourceWidth_) <= 16
-        && Math.abs(height - this.sourceHeight_) <= 16) {
+    if (
+      Math.abs(width - this.sourceWidth_) <= 16 &&
+      Math.abs(height - this.sourceHeight_) <= 16
+    ) {
       width = this.sourceWidth_;
       height = this.sourceHeight_;
     }
 
     this.contentBox_ = layoutRectLtwh(
-        0,
-        0,
-        Math.round(width),
-        Math.round(height));
+      0,
+      0,
+      Math.round(width),
+      Math.round(height)
+    );
   }
 
   /**
@@ -334,10 +347,12 @@ export class AmpPanZoom extends AMP.BaseElement {
     const {width, height} = this.elementBox_;
     const elementBoxRatio = width / height;
     const maxScale = Math.max(
-        elementBoxRatio / sourceAspectRatio,
-        sourceAspectRatio / elementBoxRatio
+      elementBoxRatio / sourceAspectRatio,
+      sourceAspectRatio / elementBoxRatio
     );
-    this.maxScale_ = Math.max(this.maxScale_, maxScale);
+    if (!isNaN(maxScale)) {
+      this.maxScale_ = Math.max(this.maxScale_, maxScale);
+    }
   }
 
   /**
@@ -347,13 +362,12 @@ export class AmpPanZoom extends AMP.BaseElement {
    * @private
    */
   measure_() {
-    this.sourceWidth_ = this.content_./*OK*/scrollWidth;
-    this.sourceHeight_ = this.content_./*OK*/scrollHeight;
+    this.sourceWidth_ = this.content_./*OK*/ scrollWidth;
+    this.sourceHeight_ = this.content_./*OK*/ scrollHeight;
 
     const sourceAspectRatio = this.sourceWidth_ / this.sourceHeight_;
 
-    this.elementBox_ = layoutRectFromDomRect(this.element
-        ./*OK*/getBoundingClientRect());
+    this.elementBox_ = this.getViewport().getLayoutRect(this.element);
 
     this.updateContentDimensions_(sourceAspectRatio);
     this.updateMaxScale_(sourceAspectRatio);
@@ -371,23 +385,54 @@ export class AmpPanZoom extends AMP.BaseElement {
    * @private
    */
   resetContentDimensions_() {
-    const content = dev().assertElement(this.content_);
-    return this.measureMutateElement(
-        () => this.measure_(),
-        () => {
-          // Set the actual dimensions of the content
-          setStyles(content, {
-            width: px(this.contentBox_.width),
-            height: px(this.contentBox_.height),
-          });
-        }, content).then(() => {
-      const contentBox =
-        layoutRectFromDomRect(this.content_./*OK*/getBoundingClientRect());
-      // Set content positions to offset from element box
-      this.contentBox_.top = contentBox.top - this.elementBox_.top;
-      this.contentBox_.left = contentBox.left - this.elementBox_.left;
-      this.updatePanZoomBounds_(this.scale_);
-      return this.updatePanZoom_();
+    return this.mutateElement(() => this.clearDimensions_())
+      .then(() =>
+        this.measureMutateElement(
+          () => this.measure_(),
+          () => this.setDimensions_(),
+          dev().assertElement(this.content_)
+        )
+      )
+      .then(() => {
+        this.setContentBoxOffsets_();
+        this.updatePanZoomBounds_(this.scale_);
+        return this.updatePanZoom_();
+      });
+  }
+
+  /**
+   * Sets the top and left values of the contentBox as offset from
+   * pan-zoom container
+   */
+  setContentBoxOffsets_() {
+    const contentBox = layoutRectFromDomRect(
+      dev()
+        .assertElement(this.content_)
+        ./*OK*/ getBoundingClientRect()
+    );
+    // Set content positions to offset from element box
+    this.contentBox_.top = contentBox.top - this.elementBox_.top;
+    this.contentBox_.left = contentBox.left - this.elementBox_.left;
+  }
+
+  /**
+   * Set content dimensions so that they fit exactly within
+   * amp-pan-zoom.
+   */
+  setDimensions_() {
+    setStyles(dev().assertElement(this.content_), {
+      width: px(this.contentBox_.width),
+      height: px(this.contentBox_.height),
+    });
+  }
+
+  /**
+   * Clears content dimensions if any
+   */
+  clearDimensions_() {
+    setStyles(dev().assertElement(this.content_), {
+      width: '',
+      height: '',
     });
   }
 
@@ -395,6 +440,7 @@ export class AmpPanZoom extends AMP.BaseElement {
    * Given a x offset relative to the viewport, return the x offset
    * relative to the amp-pan-zoom component.
    * @param {number} clientX
+   * @return {number}
    * @private
    */
   getOffsetX_(clientX) {
@@ -406,6 +452,7 @@ export class AmpPanZoom extends AMP.BaseElement {
    * Given a y offset relative to the viewport, return the y offset
    * relative to the amp-pan-zoom component.
    * @param {number} clientY
+   * @return {number}
    * @private
    */
   getOffsetY_(clientY) {
@@ -418,8 +465,9 @@ export class AmpPanZoom extends AMP.BaseElement {
    */
   setupEvents_() {
     this.setupGestures_();
-    this.unlistenMouseDown_ =
-      listen(this.element, 'mousedown', this.onMouseDown_.bind(this));
+    this.unlistenMouseDown_ = listen(this.element, 'mousedown', e =>
+      this.onMouseDown_(e)
+    );
   }
 
   /**
@@ -464,10 +512,12 @@ export class AmpPanZoom extends AMP.BaseElement {
     this.mouseStartX_ = clientX;
     this.mouseStartY_ = clientY;
 
-    this.unlistenMouseMove_ =
-        listen(this.element, 'mousemove', this.onMouseMove_.bind(this));
-    this.unlistenMouseUp_ =
-        listen(this.win, 'mouseup', this.onMouseUp_.bind(this));
+    this.unlistenMouseMove_ = listen(this.element, 'mousemove', e =>
+      this.onMouseMove_(e)
+    );
+    this.unlistenMouseUp_ = listen(this.win, 'mouseup', e =>
+      this.onMouseUp_(e)
+    );
   }
 
   /**
@@ -517,42 +567,74 @@ export class AmpPanZoom extends AMP.BaseElement {
       }
     });
 
-    this.gestures_.onGesture(PinchRecognizer, e => {
-      const {
-        centerClientX,
-        centerClientY,
-        deltaX,
-        deltaY,
-        dir,
-        last,
-      } = e.data;
+    this.gestures_.onGesture(PinchRecognizer, e => this.handlePinch(e.data));
 
-      this.onPinchZoom_(centerClientX, centerClientY, deltaX, deltaY, dir);
+    // Having a doubletap gesture results in a 200ms delay in tap gestures in
+    // order to differentiate the two gestures. Some users may choose to disable
+    // it to avoid the 200ms tap delay.
+    if (!this.disableDoubleTap_) {
+      this.gestures_.onGesture(DoubletapRecognizer, e =>
+        this.handleDoubleTap(e.data)
+      );
+      // Override all taps to enable tap events on content
+      this.gestures_.onGesture(TapRecognizer, e => this.handleTap_(e.data));
+    }
+  }
+
+  /**
+   * @param {!../../../src/gesture-recognizers.DoubletapDef} data
+   * @return {!Promise}
+   * @visibleForTesting
+   */
+  handleDoubleTap(data) {
+    const {clientX, clientY} = data;
+    return this.onDoubletapZoom_(clientX, clientY).then(() =>
+      this.onZoomRelease_()
+    );
+  }
+
+  /**
+   * @param {!../../../src/gesture-recognizers.PinchDef} data
+   * @return {!Promise}
+   * @visibleForTesting
+   */
+  handlePinch(data) {
+    const {centerClientX, centerClientY, deltaX, deltaY, dir, last} = data;
+    return this.onPinchZoom_(
+      centerClientX,
+      centerClientY,
+      deltaX,
+      deltaY,
+      dir
+    ).then(() => {
       if (last) {
-        this.onZoomRelease_();
+        return this.onZoomRelease_();
       }
     });
+  }
 
-    if (!this.disableDoubleTap_) {
-      this.gestures_.onGesture(DoubletapRecognizer, e => {
-        const {clientX, clientY} = e.data;
-        this.onDoubletapZoom_(clientX, clientY)
-            .then(() => this.onZoomRelease_());
-      });
-      // Override all taps to enable tap events on content
-      this.gestures_.onGesture(TapRecognizer, e => {
+  /**
+   * @param {!../../../src/gesture-recognizers.SwipeDef} data
+   * @return {!Promise}
+   * @visibleForTesting
+   */
+  handleSwipe(data) {
+    const {deltaX, deltaY, last, velocityX, velocityY} = data;
+    return this.onMove_(deltaX, deltaY, /*animate*/ false).then(() => {
+      if (last) {
+        return this.onMoveRelease_(velocityX, velocityY);
+      }
+    });
+  }
 
-        // A custom event is necessary here (as opposed to the click() function)
-        // because some targets (e.g. SVGs) may not be HTMLElements.
-        const event = createCustomEvent(
-            this.win,
-            'click',
-            null,
-            {bubbles: true}
-        );
-        e.data.target.dispatchEvent(event);
-      });
-    }
+  /**
+   * @param {!../../../src/gesture-recognizers.TapDef} data
+   */
+  handleTap_(data) {
+    // A custom event is necessary here (as opposed to the click() function)
+    // because some targets (e.g. SVGs) may not be HTMLElements.
+    const event = createCustomEvent(this.win, 'click', null, {bubbles: true});
+    data.target.dispatchEvent(event);
   }
 
   /**
@@ -561,20 +643,9 @@ export class AmpPanZoom extends AMP.BaseElement {
    */
   registerPanningGesture_() {
     // Movable.
-    this.unlistenOnSwipePan_ = this.gestures_
-        .onGesture(SwipeXYRecognizer, e => {
-          const {
-            deltaX,
-            deltaY,
-            last,
-            velocityX,
-            velocityY,
-          } = e.data;
-          this.onMove_(deltaX, deltaY, /*animate*/ false);
-          if (last) {
-            this.onMoveRelease_(velocityX, velocityY);
-          }
-        });
+    this.unlistenOnSwipePan_ = this.gestures_.onGesture(SwipeXYRecognizer, e =>
+      this.handleSwipe(e.data)
+    );
   }
 
   /**
@@ -590,19 +661,6 @@ export class AmpPanZoom extends AMP.BaseElement {
   }
 
   /**
-   * Returns value bound to min and max values +/- extent.
-   * @param {number} value
-   * @param {number} min
-   * @param {number} max
-   * @param {number} extent
-   * @return {number}
-   * @private
-   */
-  boundValue_(value, min, max, extent) {
-    return clamp(value, min - extent, max + extent);
-  }
-
-  /**
    * Returns the scale within the allowed range with possible extent.
    * @param {number} s
    * @param {boolean} allowExtent
@@ -611,7 +669,7 @@ export class AmpPanZoom extends AMP.BaseElement {
    */
   boundScale_(s, allowExtent) {
     const extent = allowExtent ? 0.25 : 0;
-    return this.boundValue_(s, this.minScale_, this.maxScale_, extent);
+    return boundValue(s, this.minScale_, this.maxScale_, extent);
   }
 
   /**
@@ -624,7 +682,7 @@ export class AmpPanZoom extends AMP.BaseElement {
   boundX_(x, allowExtent) {
     const maxExtent = this.elementBox_.width * 0.25;
     const extent = allowExtent && this.scale_ > 1 ? maxExtent : 0;
-    return this.boundValue_(x, this.minX_, this.maxX_, extent);
+    return boundValue(x, this.minX_, this.maxX_, extent);
   }
 
   /**
@@ -637,7 +695,7 @@ export class AmpPanZoom extends AMP.BaseElement {
   boundY_(y, allowExtent) {
     const maxExtent = this.elementBox_.height * 0.25;
     const extent = allowExtent && this.scale_ > 1 ? maxExtent : 0;
-    return this.boundValue_(y, this.minY_, this.maxY_, extent);
+    return boundValue(y, this.minY_, this.maxY_, extent);
   }
 
   /**
@@ -679,9 +737,9 @@ export class AmpPanZoom extends AMP.BaseElement {
     } = this.contentBox_;
     const {width: eWidth, height: eHeight} = this.elementBox_;
 
-    this.minX_ = Math.min(0, eWidth - (xOffset + cWidth * (scale + 1) / 2));
+    this.minX_ = Math.min(0, eWidth - (xOffset + (cWidth * (scale + 1)) / 2));
     this.maxX_ = Math.max(0, (cWidth * scale - cWidth) / 2 - xOffset);
-    this.minY_ = Math.min(0, eHeight - (yOffset + cHeight * (scale + 1) / 2));
+    this.minY_ = Math.min(0, eHeight - (yOffset + (cHeight * (scale + 1)) / 2));
     this.maxY_ = Math.max(0, (cHeight * scale - cHeight) / 2 - yOffset);
   }
 
@@ -706,14 +764,21 @@ export class AmpPanZoom extends AMP.BaseElement {
    * @private
    */
   triggerTransformEnd_(scale, x, y) {
-    const transformEndEvent =
-    createCustomEvent(this.win, `${TAG}.transformEnd`, dict({
-      'scale': scale,
-      'x': x,
-      'y': y,
-    }));
-    this.action_.trigger(this.element, 'transformEnd', transformEndEvent,
-        ActionTrust.HIGH);
+    const transformEndEvent = createCustomEvent(
+      this.win,
+      `${TAG}.transformEnd`,
+      dict({
+        'scale': scale,
+        'x': x,
+        'y': y,
+      })
+    );
+    this.action_.trigger(
+      this.element,
+      'transformEnd',
+      transformEndEvent,
+      ActionTrust.HIGH
+    );
     this.element.dispatchCustomEvent('transformEnd');
   }
 
@@ -722,12 +787,13 @@ export class AmpPanZoom extends AMP.BaseElement {
    * @param {number} deltaX
    * @param {number} deltaY
    * @param {boolean} animate
+   * @return {!Promise}
    * @private
    */
   onMove_(deltaX, deltaY, animate) {
     const newPosX = this.boundX_(this.startX_ + deltaX, true);
     const newPosY = this.boundY_(this.startY_ + deltaY, true);
-    this.set_(this.scale_, newPosX, newPosY, animate);
+    return this.set_(this.scale_, newPosX, newPosY, animate);
   }
 
   /**
@@ -735,26 +801,34 @@ export class AmpPanZoom extends AMP.BaseElement {
    * may continue based on the final velocity.
    * @param {number} veloX
    * @param {number} veloY
+   * @return {!Promise}
    * @private
    */
   onMoveRelease_(veloX, veloY) {
     // Continue motion.
-    this.motion_ = continueMotion(dev().assertElement(this.content_),
-        this.posX_, this.posY_, veloX, veloY,
-        (x, y) => {
-          const newPosX = this.boundX_(x, true);
-          const newPosY = this.boundY_(y, true);
-          if (Math.abs(newPosX - this.posX_) < 1 &&
-                Math.abs(newPosY - this.posY_) < 1) {
-            // Hit the wall: stop motion.
-            return false;
-          }
-          this.set_(this.scale_, newPosX, newPosY, false);
-          return true;
-        });
+    this.motion_ = continueMotion(
+      dev().assertElement(this.content_),
+      this.posX_,
+      this.posY_,
+      veloX,
+      veloY,
+      (x, y) => {
+        const newPosX = this.boundX_(x, true);
+        const newPosY = this.boundY_(y, true);
+        if (
+          Math.abs(newPosX - this.posX_) < 1 &&
+          Math.abs(newPosY - this.posY_) < 1
+        ) {
+          // Hit the wall: stop motion.
+          return false;
+        }
+        this.set_(this.scale_, newPosX, newPosY, false);
+        return true;
+      }
+    );
 
     // Snap back.
-    this.motion_.thenAlways(() => {
+    return this.motion_.thenAlways(() => {
       this.motion_ = null;
       return this.release_();
     });
@@ -763,12 +837,13 @@ export class AmpPanZoom extends AMP.BaseElement {
   /**
    * @param {number} clientX
    * @param {number} clientY
+   * @return {*} TODO(#23582): Specify return type
    */
   onDoubletapZoom_(clientX, clientY) {
-    const newScale = this.scale_ == this.minScale_ ?
-      this.maxScale_ : this.minScale_;
-    const dx = (this.elementBox_.width / 2) - this.getOffsetX_(clientX);
-    const dy = (this.elementBox_.height / 2) - this.getOffsetY_(clientY);
+    const newScale =
+      this.scale_ == this.minScale_ ? this.maxScale_ : this.minScale_;
+    const dx = this.elementBox_.width / 2 - this.getOffsetX_(clientX);
+    const dy = this.elementBox_.height / 2 - this.getOffsetY_(clientY);
     return this.onZoom_(newScale, dx, dy, /*animate*/ true);
   }
 
@@ -779,20 +854,21 @@ export class AmpPanZoom extends AMP.BaseElement {
    * @param {number} deltaX
    * @param {number} deltaY
    * @param {number} dir
+   * @return {!Promise}
    * @private
    */
   onPinchZoom_(centerClientX, centerClientY, deltaX, deltaY, dir) {
     if (dir == 0) {
-      return;
+      return Promise.resolve();
     }
     const {width, height} = this.elementBox_;
-    const dist = Math.sqrt((deltaX * deltaX) + (deltaY * deltaY));
-    const newScale = this.startScale_ * (1 + (dir * dist / 100));
+    const dist = magnitude(deltaX, deltaY);
+    const newScale = this.startScale_ * (1 + (dir * dist) / 100);
     const deltaCenterX = width / 2 - this.getOffsetX_(centerClientX);
     const deltaCenterY = height / 2 - this.getOffsetY_(centerClientY);
     const dx = Math.min(dist / 100, 1) * deltaCenterX;
     const dy = Math.min(dist / 100, 1) * deltaCenterY;
-    this.onZoom_(newScale, dx, dy, /*animate*/ false);
+    return this.onZoom_(newScale, dx, dy, /*animate*/ false);
   }
 
   /**
@@ -810,8 +886,8 @@ export class AmpPanZoom extends AMP.BaseElement {
       return Promise.resolve();
     }
     this.updatePanZoomBounds_(newScale);
-    const newPosX = this.boundX_(this.startX_ + (deltaX * newScale), false);
-    const newPosY = this.boundY_(this.startY_ + (deltaY * newScale), false);
+    const newPosX = this.boundX_(this.startX_ + deltaX * newScale, false);
+    const newPosY = this.boundY_(this.startY_ + deltaY * newScale, false);
     return this.set_(newScale, newPosX, newPosY, animate);
   }
 
@@ -867,39 +943,43 @@ export class AmpPanZoom extends AMP.BaseElement {
    */
   set_(newScale, newPosX, newPosY, animate) {
     const ds = newScale - this.scale_;
-    const dx = newPosX - this.posX_;
-    const dy = newPosY - this.posY_;
-    const dist = Math.sqrt((dx * dx) + (dy * dy));
+    const dist = distance(this.posX_, this.posY_, newPosX, newPosY);
 
-    const dur = animate ?
-      Math.min(1, Math.max(
-          dist * 0.01, // Distance
-          Math.abs(ds) // Change in scale
-      )) * MAX_ANIMATION_DURATION : 0;
+    const dur = animate
+      ? Math.min(
+          1,
+          Math.max(
+            dist * 0.01, // Distance
+            Math.abs(ds) // Change in scale
+          )
+        ) * MAX_ANIMATION_DURATION
+      : 0;
 
     if (dur > 16 && animate) {
       const scaleFunc = numeric(this.scale_, newScale);
       const xFunc = numeric(this.posX_, newPosX);
       const yFunc = numeric(this.posY_, newPosY);
-      return Animation.animate(dev().assertElement(this.content_), time => {
-        this.scale_ = scaleFunc(time);
-        this.posX_ = xFunc(time);
-        this.posY_ = yFunc(time);
-        this.updatePanZoom_();
-      }, dur, PAN_ZOOM_CURVE_).thenAlways(() => {
+      return Animation.animate(
+        dev().assertElement(this.content_),
+        time => {
+          this.scale_ = scaleFunc(time);
+          this.posX_ = xFunc(time);
+          this.posY_ = yFunc(time);
+          this.updatePanZoom_();
+        },
+        dur,
+        PAN_ZOOM_CURVE_
+      ).thenAlways(() => {
         this.scale_ = newScale;
         this.posX_ = newPosX;
         this.posY_ = newPosY;
         this.updatePanZoom_();
-        this.triggerTransformEnd_(newScale, newPosX, newPosY);
       });
     } else {
       this.scale_ = newScale;
       this.posX_ = newPosX;
       this.posY_ = newPosY;
-      return this.updatePanZoom_().then(() => {
-        this.triggerTransformEnd_(newScale, newPosX, newPosY);
-      });
+      return this.updatePanZoom_();
     }
   }
 
@@ -913,8 +993,8 @@ export class AmpPanZoom extends AMP.BaseElement {
     if (newScale != this.scale_) {
       this.updatePanZoomBounds_(newScale);
     }
-    const newPosX = this.boundX_(this.posX_ / this.scale_ * newScale, false);
-    const newPosY = this.boundY_(this.posY_ / this.scale_ * newScale, false);
+    const newPosX = this.boundX_((this.posX_ / this.scale_) * newScale, false);
+    const newPosY = this.boundY_((this.posY_ / this.scale_) * newScale, false);
     return this.set_(newScale, newPosX, newPosY, true).then(() => {
       this.startScale_ = this.scale_;
       this.startX_ = this.posX_;

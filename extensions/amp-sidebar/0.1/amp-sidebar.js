@@ -16,14 +16,21 @@
 
 import {ActionTrust} from '../../../src/action-constants';
 import {CSS} from '../../../build/amp-sidebar-0.1.css';
-import {KeyCodes} from '../../../src/utils/key-codes';
+import {Keys} from '../../../src/utils/key-codes';
 import {Services} from '../../../src/services';
 import {Toolbar} from './toolbar';
-import {closestByTag, isRTL, tryFocus} from '../../../src/dom';
+import {
+  closestAncestorElementBySelector,
+  isRTL,
+  tryFocus,
+} from '../../../src/dom';
 import {createCustomEvent} from '../../../src/event-helper';
-import {dev} from '../../../src/log';
+import {descendsFromStory} from '../../../src/utils/story';
+import {dev, devAssert} from '../../../src/log';
 import {dict} from '../../../src/utils/object';
+import {handleAutoscroll} from './autoscroll';
 import {removeFragment} from '../../../src/url';
+import {setModalAsClosed, setModalAsOpen} from '../../../src/modal';
 import {setStyles, toggle} from '../../../src/style';
 import {toArray} from '../../../src/types';
 
@@ -33,12 +40,18 @@ const TAG = 'amp-sidebar toolbar';
 /** @private @const {number} */
 const ANIMATION_TIMEOUT = 350;
 
+/** @private @enum {string} */
+const Side = {
+  LEFT: 'left',
+  RIGHT: 'right',
+};
+
 /**
-  * For browsers with bottom nav bars the content towards the bottom
-  * end of the sidebar is cut off.
-  * Currently Safari is the only browser with a nav bar on the bottom
-  * so we set the width of this block to the width of Safari's nav bar.
-  * Source for value: https://github.com/WebKit/webkit/blob/de9875e914c8fda3f46247cd482ce4f849ddad0a/Source/WebInspectorUI/UserInterface/Views/Variables.css#L119
+ * For browsers with bottom nav bars the content towards the bottom
+ * end of the sidebar is cut off.
+ * Currently Safari is the only browser with a nav bar on the bottom
+ * so we set the width of this block to the width of Safari's nav bar.
+ * Source for value: https://github.com/WebKit/webkit/blob/de9875e914c8fda3f46247cd482ce4f849ddad0a/Source/WebInspectorUI/UserInterface/Views/Variables.css#L119
  */
 /** @private @const {string} */
 const IOS_SAFARI_BOTTOMBAR_HEIGHT = '29px';
@@ -96,6 +109,9 @@ export class AmpSidebar extends AMP.BaseElement {
     this.bottomBarCompensated_ = false;
 
     /** @private {?Element} */
+    this.closeButton_ = null;
+
+    /** @private {?Element} */
     this.openerElement_ = null;
 
     /** @private {number} */
@@ -115,8 +131,10 @@ export class AmpSidebar extends AMP.BaseElement {
 
     this.action_ = Services.actionServiceForDoc(element);
 
-    if (this.side_ != 'left' && this.side_ != 'right') {
-      this.side_ = isRTL(this.document_) ? 'right' : 'left';
+    if (this.side_ != Side.LEFT && this.side_ != Side.RIGHT) {
+      this.side_ = this.setSideAttribute_(
+        isRTL(this.document_) ? Side.RIGHT : Side.LEFT
+      );
       element.setAttribute('side', this.side_);
     }
 
@@ -149,66 +167,124 @@ export class AmpSidebar extends AMP.BaseElement {
 
     this.documentElement_.addEventListener('keydown', event => {
       // Close sidebar on ESC.
-      if (event.keyCode == KeyCodes.ESCAPE) {
-        this.close_();
+      if (event.key == Keys.ESCAPE) {
+        if (this.close_()) {
+          event.preventDefault();
+        }
       }
     });
 
+    this.closeButton_ = this.getExistingCloseButton_();
+
+    // If we do not have a close button provided by the page author, create one
+    // at the start of the sidebar for screen readers.
+    if (!this.closeButton_) {
+      this.closeButton_ = this.createScreenReaderCloseButton();
+      element.insertBefore(this.closeButton_, this.element.firstChild);
+    }
+    // always create a close button at the end of the sidebar for screen
+    // readers.
+    element.appendChild(this.createScreenReaderCloseButton());
+    this.registerDefaultAction(invocation => this.open_(invocation), 'open');
+    this.registerAction('toggle', this.toggle_.bind(this));
+    this.registerAction('close', this.close_.bind(this));
+
+    element.addEventListener(
+      'click',
+      e => {
+        const target = closestAncestorElementBySelector(
+          dev().assertElement(e.target),
+          'A'
+        );
+        if (target && target.href) {
+          const tgtLoc = Services.urlForDoc(element).parse(target.href);
+          const currentHref = this.getAmpDoc().win.location.href;
+          // Important: Only close sidebar (and hence pop sidebar history entry)
+          // when navigating locally, Chrome might cancel navigation request
+          // due to after-navigation history manipulation inside a timer callback.
+          // See this issue for more details:
+          // https://github.com/ampproject/amphtml/issues/6585
+          if (removeFragment(target.href) != removeFragment(currentHref)) {
+            return;
+          }
+
+          if (tgtLoc.hash) {
+            this.close_();
+          }
+        }
+      },
+      true
+    );
+  }
+
+  /**
+   * Gets a close button, provided by the page author, if one exists.
+   * @return {?Element} The close button.
+   */
+  getExistingCloseButton_() {
+    const candidates = this.element.querySelectorAll('[on]');
+
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      const hasAction = this.action_.hasResolvableActionForTarget(
+        candidate,
+        'tap',
+        this.element,
+        devAssert(candidate.parentElement)
+      );
+      const inToolbar = closestAncestorElementBySelector(
+        candidate,
+        '[toolbar]'
+      );
+
+      if (hasAction && !inToolbar) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Creates an "invisible" close button for screen readers to close the
+   * sidebar.
+   * @return {!Element}
+   */
+  createScreenReaderCloseButton() {
     // Replacement label for invisible close button set value in amp sidebar
-    const ariaLabel = element.getAttribute('data-close-button-aria-label')
-    || 'Close the sidebar';
+    const ariaLabel =
+      this.element.getAttribute('data-close-button-aria-label') ||
+      'Close the sidebar';
 
     // Invisible close button at the end of sidebar for screen-readers.
     const screenReaderCloseButton = this.document_.createElement('button');
 
     screenReaderCloseButton.textContent = ariaLabel;
     screenReaderCloseButton.classList.add('i-amphtml-screen-reader');
-    // This is for screen-readers only, should not get a tab stop.
+    // This is for screen-readers only, should not get a tab stop. Note that
+    // screen readers can still swipe / navigate to this element, it just will
+    // not be reachable via the tab button. Note that for desktop, hitting esc
+    // to close is also an option.
+    // We do not want this in the tab order since it is not really "visible"
+    // and would be confusing to tab to if not using a screen reader.
     screenReaderCloseButton.tabIndex = -1;
     screenReaderCloseButton.addEventListener('click', () => {
       this.close_();
     });
-    element.appendChild(screenReaderCloseButton);
 
-    this.registerAction('toggle', this.toggle_.bind(this));
-    this.registerAction('open', this.open_.bind(this));
-    this.registerAction('close', this.close_.bind(this));
-
-    element.addEventListener('click', e => {
-      const target = closestByTag(dev().assertElement(e.target), 'A');
-      if (target && target.href) {
-        const tgtLoc = Services.urlForDoc(element).parse(target.href);
-        const currentHref = this.getAmpDoc().win.location.href;
-        // Important: Only close sidebar (and hence pop sidebar history entry)
-        // when navigating locally, Chrome might cancel navigation request
-        // due to after-navigation history manipulation inside a timer callback.
-        // See this issue for more details:
-        // https://github.com/ampproject/amphtml/issues/6585
-        if (removeFragment(target.href) != removeFragment(currentHref)) {
-          return;
-        }
-
-        if (tgtLoc.hash) {
-          this.close_();
-        }
-      }
-    }, true);
-
-  }
-
-  /** @override */
-  activate(invocation) {
-    this.open_(invocation);
+    return screenReaderCloseButton;
   }
 
   /** @override */
   onLayoutMeasure() {
-    this.getAmpDoc().whenReady().then(() => {
-      // Check our toolbars for changes
-      this.toolbars_.forEach(toolbar => {
-        toolbar.onLayoutChange();
+    this.getAmpDoc()
+      .whenReady()
+      .then(() => {
+        // Check our toolbars for changes
+        this.toolbars_.forEach(toolbar => {
+          toolbar.onLayoutChange();
+        });
       });
-    });
   }
 
   /**
@@ -258,29 +334,27 @@ export class AmpSidebar extends AMP.BaseElement {
   }
 
   /**
-   * Updates the sidebar before it opens. This needs to be done as a separate
-   * step from opening so that we can animate, as the sidebar is initially
-   * display: none.
+   * Updates the sidebar while it is animating to the opened state.
    */
-  updateForPreOpening_() {
-    toggle(this.element, /* display */true);
+  updateForOpening_() {
+    toggle(this.element, /* display */ true);
     this.viewport_.addToFixedLayer(this.element, /* forceTransfer */ true);
+    this.mutateElement(() => {
+      // Wait for mutateElement, so that the element has been transfered to the
+      // fixed layer. This is needed to hide the correct elements.
+      setModalAsOpen(this.element);
+    });
 
     if (this.isIos_ && this.isSafari_) {
       this.compensateIosBottombar_();
     }
-    this.element./*OK*/scrollTop = 1;
-    this.setUpdateFn_(() => this.updateForOpening_());
-  }
 
-  /**
-   * Updates the sidebar while it is animating to the opened state.
-   */
-  updateForOpening_() {
+    this.element./*OK*/ scrollTop = 1;
     this.openMask_();
     this.element.setAttribute('open', '');
     this.element.setAttribute('aria-hidden', 'false');
     this.setUpdateFn_(() => this.updateForOpened_(), ANIMATION_TIMEOUT);
+    handleAutoscroll(this.getAmpDoc(), this.element);
   }
 
   /**
@@ -289,9 +363,17 @@ export class AmpSidebar extends AMP.BaseElement {
   updateForOpened_() {
     // On open sidebar
     const children = this.getRealChildren();
-    this.scheduleLayout(children);
-    this.scheduleResume(children);
-    tryFocus(this.element);
+    const owners = Services.ownersForDoc(this.element);
+    owners.scheduleLayout(this.element, children);
+    owners.scheduleResume(this.element, children);
+    // As of iOS 12.2, focus() causes undesired scrolling in UIWebViews.
+    if (!this.isIosWebView_()) {
+      // For iOS, we cannot focus the Element itself, since VoiceOver will not
+      // move screen reader focus over (if there is more than one Text Node in)
+      // the sidebar. For Android, focus the sidebar itself is not a very good
+      // experience, so we also just focus the first close button.
+      tryFocus(devAssert(this.closeButton_));
+    }
     this.triggerEvent_(SidebarEvents.OPEN);
   }
 
@@ -300,6 +382,9 @@ export class AmpSidebar extends AMP.BaseElement {
    */
   updateForClosing_() {
     this.closeMask_();
+    this.mutateElement(() => {
+      setModalAsClosed(this.element);
+    });
     this.element.removeAttribute('open');
     this.element.setAttribute('aria-hidden', 'true');
     this.setUpdateFn_(() => this.updateForClosed_(), ANIMATION_TIMEOUT);
@@ -309,8 +394,11 @@ export class AmpSidebar extends AMP.BaseElement {
    * Updates the sidebar for when it has finished closing.
    */
   updateForClosed_() {
-    toggle(this.element, /* display */false);
-    this.schedulePause(this.getRealChildren());
+    toggle(this.element, /* display */ false);
+    Services.ownersForDoc(this.element).schedulePause(
+      this.element,
+      this.getRealChildren()
+    );
     this.triggerEvent_(SidebarEvents.CLOSE);
   }
 
@@ -324,10 +412,12 @@ export class AmpSidebar extends AMP.BaseElement {
       return;
     }
     this.viewport_.enterOverlayMode();
-    this.setUpdateFn_(() => this.updateForPreOpening_());
-    this.getHistory_().push(this.close_.bind(this)).then(historyId => {
-      this.historyId_ = historyId;
-    });
+    this.setUpdateFn_(() => this.updateForOpening_());
+    this.getHistory_()
+      .push(this.close_.bind(this))
+      .then(historyId => {
+        this.historyId_ = historyId;
+      });
     if (opt_invocation) {
       this.openerElement_ = opt_invocation.caller;
       this.initialScrollTop_ = this.viewport_.getScrollTop();
@@ -336,27 +426,44 @@ export class AmpSidebar extends AMP.BaseElement {
 
   /**
    * Hides the sidebar.
+   * @return {boolean} Whether the sidebar actually transitioned from "visible"
+   *     to "hidden".
    * @private
    */
   close_() {
     if (!this.isOpen_()) {
-      return;
+      return false;
     }
     this.viewport_.leaveOverlayMode();
     const scrollDidNotChange =
-      (this.initialScrollTop_ == this.viewport_.getScrollTop());
-    const sidebarIsActive =
-        this.element.contains(this.document_.activeElement);
+      this.initialScrollTop_ == this.viewport_.getScrollTop();
+    const sidebarIsActive = this.element.contains(this.document_.activeElement);
     this.setUpdateFn_(() => this.updateForClosing_());
     if (this.historyId_ != -1) {
       this.getHistory_().pop(this.historyId_);
       this.historyId_ = -1;
     }
     if (this.openerElement_ && sidebarIsActive && scrollDidNotChange) {
-      tryFocus(this.openerElement_);
+      // As of iOS 12.2, focus() causes undesired scrolling in UIWebViews.
+      if (!this.isIosWebView_()) {
+        tryFocus(this.openerElement_);
+      }
+    }
+    return true;
+  }
+  /**
+   * Sidebars within <amp-story> should be 'flipped'.
+   * @param {!Side} side
+   * @return {Side}
+   * @private
+   */
+  setSideAttribute_(side) {
+    if (!descendsFromStory(this.element)) {
+      return side;
+    } else {
+      return side == Side.LEFT ? Side.RIGHT : Side.LEFT;
     }
   }
-
   /**
    * @private
    */
@@ -367,13 +474,15 @@ export class AmpSidebar extends AMP.BaseElement {
       mask.addEventListener('click', () => {
         this.close_();
       });
-      this.element.ownerDocument.body.appendChild(mask);
+      this.getAmpDoc()
+        .getBody()
+        .appendChild(mask);
       mask.addEventListener('touchmove', e => {
         e.preventDefault();
       });
       this.maskElement_ = mask;
     }
-    toggle(this.maskElement_, /* display */true);
+    this.maskElement_.classList.toggle('i-amphtml-ghost', false);
   }
 
   /**
@@ -381,7 +490,7 @@ export class AmpSidebar extends AMP.BaseElement {
    */
   closeMask_() {
     if (this.maskElement_) {
-      toggle(this.maskElement_, /* display */false);
+      this.maskElement_.classList.toggle('i-amphtml-ghost', true);
     }
   }
 
@@ -391,14 +500,14 @@ export class AmpSidebar extends AMP.BaseElement {
   fixIosElasticScrollLeak_() {
     this.element.addEventListener('scroll', e => {
       if (this.isOpen_()) {
-        if (this.element./*OK*/scrollTop < 1) {
-          this.element./*OK*/scrollTop = 1;
+        if (this.element./*OK*/ scrollTop < 1) {
+          this.element./*OK*/ scrollTop = 1;
           e.preventDefault();
-        } else if (this.element./*OK*/scrollHeight ==
-              this.element./*OK*/scrollTop +
-              this.element./*OK*/offsetHeight) {
-          this.element./*OK*/scrollTop =
-              this.element./*OK*/scrollTop - 1;
+        } else if (
+          this.element./*OK*/ scrollHeight ==
+          this.element./*OK*/ scrollTop + this.element./*OK*/ offsetHeight
+        ) {
+          this.element./*OK*/ scrollTop = this.element./*OK*/ scrollTop - 1;
           e.preventDefault();
         }
       }
@@ -423,7 +532,8 @@ export class AmpSidebar extends AMP.BaseElement {
   }
 
   /**
-   * @private @return {!../../../src/service/history-impl.History}
+   * @private
+   * @return {!../../../src/service/history-impl.History}
    */
   getHistory_() {
     return Services.historyForDoc(this.getAmpDoc());
@@ -436,6 +546,16 @@ export class AmpSidebar extends AMP.BaseElement {
   triggerEvent_(name) {
     const event = createCustomEvent(this.win, `${TAG}.${name}`, dict({}));
     this.action_.trigger(this.element, name, event, ActionTrust.HIGH);
+  }
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  isIosWebView_() {
+    // Don't use isWebviewEmbedded() because it assumes there's no parent
+    // iframe, but this is not necessarily true for all UIWebView embeds.
+    return this.isIos_ && Services.viewerForDoc(this.element).isEmbedded();
   }
 }
 

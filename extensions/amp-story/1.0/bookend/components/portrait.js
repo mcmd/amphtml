@@ -14,15 +14,12 @@
  * limitations under the License.
  */
 
-import {
-  BookendComponentInterface,
-  getSourceOriginForBookendComponent,
-} from './bookend-component-interface';
+import {BookendComponentInterface} from './bookend-component-interface';
 import {addAttributesToElement} from '../../../../../src/dom';
 import {dict} from '../../../../../src/utils/object';
+import {getSourceOriginForElement, userAssertValidProtocol} from '../../utils';
 import {htmlFor, htmlRefs} from '../../../../../src/static-template';
-import {user} from '../../../../../src/log';
-import {userAssertValidProtocol} from '../../utils';
+import {userAssert} from '../../../../../src/log';
 
 /**
  * @typedef {{
@@ -52,18 +49,18 @@ let portraitElementsDef;
  * @implements {BookendComponentInterface}
  */
 export class PortraitComponent {
-
   /** @override */
   assertValidity(portraitJson, element) {
-
     const requiredFields = ['title', 'image', 'url'];
-    const hasAllRequiredFields =
-        !requiredFields.some(field => !(field in portraitJson));
-    user().assert(
-        hasAllRequiredFields,
-        'Portrait component must contain ' +
+    const hasAllRequiredFields = !requiredFields.some(
+      field => !(field in portraitJson)
+    );
+    userAssert(
+      hasAllRequiredFields,
+      'Portrait component must contain ' +
         requiredFields.map(field => '`' + field + '`').join(', ') +
-        ' fields, skipping invalid.');
+        ' fields, skipping invalid.'
+    );
 
     userAssertValidProtocol(element, portraitJson['url']);
     userAssertValidProtocol(element, portraitJson['image']);
@@ -72,7 +69,7 @@ export class PortraitComponent {
   /** @override */
   build(portraitJson, element) {
     const url = portraitJson['url'];
-    const domainName = getSourceOriginForBookendComponent(element, url);
+    const domainName = getSourceOriginForElement(element, url);
 
     const portrait = {
       url,
@@ -92,9 +89,9 @@ export class PortraitComponent {
 
   /** @override */
   buildElement(portraitData, doc) {
+    portraitData = /** @type {PortraitComponentDef} */ (portraitData);
     const html = htmlFor(doc);
-    const el =
-        html`
+    const el = html`
         <a class="i-amphtml-story-bookend-portrait
           i-amphtml-story-bookend-component"
           target="_top">
@@ -114,8 +111,12 @@ export class PortraitComponent {
       addAttributesToElement(el, dict({'rel': 'amphtml'}));
     }
 
-    const {category, title, image, meta} =
-      /** @type {!portraitElementsDef} */ (htmlRefs(el));
+    const {
+      category,
+      title,
+      image,
+      meta,
+    } = /** @type {!portraitElementsDef} */ (htmlRefs(el));
 
     category.textContent = portraitData.category;
     title.textContent = portraitData.title;

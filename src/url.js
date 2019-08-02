@@ -22,7 +22,7 @@ import {isArray} from './types';
 import {parseQueryString_} from './url-parse-query-string';
 import {tryDecodeUriComponent_} from './url-try-decode-uri-component';
 import {urls} from './config';
-import {user} from './log';
+import {userAssert} from './log';
 
 /**
  * @type {!JsonObject}
@@ -36,6 +36,8 @@ const SERVING_TYPE_PREFIX = dict({
   'a': true,
   // Ad
   'ad': true,
+  // Actions viewer
+  'action': true,
 });
 
 /**
@@ -60,6 +62,9 @@ const AMP_GSA_PARAMS_REGEX = /[?&]amp_gsa[^&]*/;
 
 /** @private @const Matches amp_r parameters in query string. */
 const AMP_R_PARAMS_REGEX = /[?&]amp_r[^&]*/;
+
+/** @private @const Matches amp_kit parameters in query string. */
+const AMP_KIT_PARAMS_REGEX = /[?&]amp_kit[^&]*/;
 
 /** @private @const Matches usqp parameters from goog experiment in query string. */
 const GOOGLE_EXPERIMENT_PARAMS_REGEX = /[?&]usqp[^&]*/;
@@ -124,7 +129,7 @@ export function parseUrlWithA(a, url, opt_cache) {
     a.href = a.href;
   }
 
-  const info = /** @type {!Location} */({
+  const info = /** @type {!Location} */ ({
     href: a.href,
     protocol: a.protocol,
     host: a.host,
@@ -144,24 +149,28 @@ export function parseUrlWithA(a, url, opt_cache) {
 
   // 2) For URLs with implicit ports, IE11 parses to default ports while
   // other browsers leave the port field empty.
-  if ((info.protocol == 'http:' && info.port == 80)
-      || (info.protocol == 'https:' && info.port == 443)) {
+  if (
+    (info.protocol == 'http:' && info.port == 80) ||
+    (info.protocol == 'https:' && info.port == 443)
+  ) {
     info.port = '';
     info.host = info.hostname;
   }
 
   // For data URI a.origin is equal to the string 'null' which is not useful.
   // We instead return the actual origin which is the full URL.
+  let origin;
   if (a.origin && a.origin != 'null') {
-    info.origin = a.origin;
+    origin = a.origin;
   } else if (info.protocol == 'data:' || !info.host) {
-    info.origin = info.href;
+    origin = info.href;
   } else {
-    info.origin = info.protocol + '//' + info.host;
+    origin = info.protocol + '//' + info.host;
   }
+  info.origin = origin;
 
   // Freeze during testing to avoid accidental mutation.
-  const frozen = (getMode().test && Object.freeze) ? Object.freeze(info) : info;
+  const frozen = getMode().test && Object.freeze ? Object.freeze(info) : info;
 
   if (opt_cache) {
     opt_cache.put(url, frozen);
@@ -178,19 +187,23 @@ export function parseUrlWithA(a, url, opt_cache) {
  * @param {boolean=} opt_addToFront
  * @return {string}
  */
-export function appendEncodedParamStringToUrl(url, paramString,
-  opt_addToFront) {
+export function appendEncodedParamStringToUrl(
+  url,
+  paramString,
+  opt_addToFront
+) {
   if (!paramString) {
     return url;
   }
   const mainAndFragment = url.split('#', 2);
   const mainAndQuery = mainAndFragment[0].split('?', 2);
 
-  let newUrl = mainAndQuery[0] + (
-    mainAndQuery[1]
-      ? (opt_addToFront
+  let newUrl =
+    mainAndQuery[0] +
+    (mainAndQuery[1]
+      ? opt_addToFront
         ? `?${paramString}&${mainAndQuery[1]}`
-        : `?${mainAndQuery[1]}&${paramString}`)
+        : `?${mainAndQuery[1]}&${paramString}`
       : `?${paramString}`);
   newUrl += mainAndFragment[1] ? `#${mainAndFragment[1]}` : '';
   return newUrl;
@@ -225,6 +238,7 @@ export function addParamsToUrl(url, params) {
  * exist in current query string.
  * @param {string} url
  * @param {!JsonObject<string, string|!Array<string>>} params
+ * @return {string}
  */
 export function addMissingParamsToUrl(url, params) {
   const location = parseUrlDeprecated(url);
@@ -273,9 +287,12 @@ export function isSecureUrlDeprecated(url) {
   if (typeof url == 'string') {
     url = parseUrlDeprecated(url);
   }
-  return (url.protocol == 'https:' ||
-      url.hostname == 'localhost' ||
-      endsWith(url.hostname, '.localhost'));
+  return (
+    url.protocol == 'https:' ||
+    url.hostname == 'localhost' ||
+    url.hostname == '127.0.0.1' ||
+    endsWith(url.hostname, '.localhost')
+  );
 }
 
 /**
@@ -290,16 +307,27 @@ export function isSecureUrlDeprecated(url) {
  * @return {string}
  */
 export function assertHttpsUrl(
-  urlString, elementContext, sourceName = 'source') {
-  user().assert(urlString != null, '%s %s must be available',
-      elementContext, sourceName);
+  urlString,
+  elementContext,
+  sourceName = 'source'
+) {
+  userAssert(
+    urlString != null,
+    '%s %s must be available',
+    elementContext,
+    sourceName
+  );
   // (erwinm, #4560): type cast necessary until #4560 is fixed.
   const theUrlString = /** @type {string} */ (urlString);
-  user().assert(isSecureUrlDeprecated(theUrlString) || /^(\/\/)/.test(theUrlString),
-      '%s %s must start with ' +
+  userAssert(
+    isSecureUrlDeprecated(theUrlString) || /^(\/\/)/.test(theUrlString),
+    '%s %s must start with ' +
       '"https://" or "//" or be relative and served from ' +
       'either https or from localhost. Invalid value: %s',
-      elementContext, sourceName, theUrlString);
+    elementContext,
+    sourceName,
+    theUrlString
+  );
   return theUrlString;
 }
 
@@ -309,12 +337,13 @@ export function assertHttpsUrl(
  * @return {string}
  */
 export function assertAbsoluteHttpOrHttpsUrl(urlString) {
-  user().assert(/^https?\:/i.test(urlString),
-      'URL must start with "http://" or "https://". Invalid value: %s',
-      urlString);
+  userAssert(
+    /^https?\:/i.test(urlString),
+    'URL must start with "http://" or "https://". Invalid value: %s',
+    urlString
+  );
   return parseUrlDeprecated(urlString).href;
 }
-
 
 /**
  * Parses the query string of an URL. This method returns a simple key/value
@@ -425,7 +454,6 @@ export function removeAmpJsParamsFromUrl(url) {
   const parsed = parseUrlDeprecated(url);
   const search = removeAmpJsParamsFromSearch(parsed.search);
   return parsed.origin + parsed.pathname + search + parsed.hash;
-
 }
 
 /**
@@ -453,11 +481,29 @@ function removeAmpJsParamsFromSearch(urlSearch) {
     return '';
   }
   const search = urlSearch
-      .replace(AMP_JS_PARAMS_REGEX, '')
-      .replace(AMP_GSA_PARAMS_REGEX, '')
-      .replace(AMP_R_PARAMS_REGEX, '')
-      .replace(GOOGLE_EXPERIMENT_PARAMS_REGEX, '')
-      .replace(/^[?&]/, ''); // Removes first ? or &.
+    .replace(AMP_JS_PARAMS_REGEX, '')
+    .replace(AMP_GSA_PARAMS_REGEX, '')
+    .replace(AMP_R_PARAMS_REGEX, '')
+    .replace(AMP_KIT_PARAMS_REGEX, '')
+    .replace(GOOGLE_EXPERIMENT_PARAMS_REGEX, '')
+    .replace(/^[?&]/, ''); // Removes first ? or &.
+  return search ? '?' + search : '';
+}
+
+/**
+ * Removes parameters with param name and returns the new search string.
+ * @param {string} urlSearch
+ * @param {string} paramName
+ * @return {string}
+ */
+export function removeParamsFromSearch(urlSearch, paramName) {
+  // TODO: reuse the function in removeAmpJsParamsFromSearch. Accept paramNames
+  // as an array.
+  if (!urlSearch || urlSearch == '?') {
+    return '';
+  }
+  const paramRegex = new RegExp(`[?&]${paramName}=[^&]*`, 'g');
+  const search = urlSearch.replace(paramRegex, '').replace(/^[?&]/, '');
   return search ? '?' + search : '';
 }
 
@@ -483,17 +529,25 @@ export function getSourceUrl(url) {
   // The /s/ is optional and signals a secure origin.
   const path = url.pathname.split('/');
   const prefix = path[1];
-  user().assert(SERVING_TYPE_PREFIX[prefix],
-      'Unknown path prefix in url %s', url.href);
+  userAssert(
+    SERVING_TYPE_PREFIX[prefix],
+    'Unknown path prefix in url %s',
+    url.href
+  );
   const domainOrHttpsSignal = path[2];
-  const origin = domainOrHttpsSignal == 's'
-    ? 'https://' + decodeURIComponent(path[3])
-    : 'http://' + decodeURIComponent(domainOrHttpsSignal);
+  const origin =
+    domainOrHttpsSignal == 's'
+      ? 'https://' + decodeURIComponent(path[3])
+      : 'http://' + decodeURIComponent(domainOrHttpsSignal);
   // Sanity test that what we found looks like a domain.
-  user().assert(origin.indexOf('.') > 0, 'Expected a . in origin %s', origin);
+  userAssert(origin.indexOf('.') > 0, 'Expected a . in origin %s', origin);
   path.splice(1, domainOrHttpsSignal == 's' ? 3 : 2);
-  return origin + path.join('/') +
-      removeAmpJsParamsFromSearch(url.search) + (url.hash || '');
+  return (
+    origin +
+    path.join('/') +
+    removeAmpJsParamsFromSearch(url.search) +
+    (url.hash || '')
+  );
 }
 
 /**
@@ -552,10 +606,12 @@ export function resolveRelativeUrlFallback_(relativeUrlString, baseUrl) {
   }
 
   // Relative path.
-  return baseUrl.origin + baseUrl.pathname.replace(/\/[^/]*$/, '/')
-      + relativeUrlString;
+  return (
+    baseUrl.origin +
+    baseUrl.pathname.replace(/\/[^/]*$/, '/') +
+    relativeUrlString
+  );
 }
-
 
 /**
  * Add "__amp_source_origin" query parameter to the URL.
@@ -569,7 +625,6 @@ export function getCorsUrl(win, url) {
   return addParamToUrl(url, SOURCE_ORIGIN_PARAM, sourceOrigin);
 }
 
-
 /**
  * Checks if the url has __amp_source_origin and throws if it does.
  * @param {string} url
@@ -577,8 +632,11 @@ export function getCorsUrl(win, url) {
 export function checkCorsUrl(url) {
   const parsedUrl = parseUrlDeprecated(url);
   const query = parseQueryString(parsedUrl.search);
-  user().assert(!(SOURCE_ORIGIN_PARAM in query),
-      'Source origin is not allowed in %s', url);
+  userAssert(
+    !(SOURCE_ORIGIN_PARAM in query),
+    'Source origin is not allowed in %s',
+    url
+  );
 }
 
 /**

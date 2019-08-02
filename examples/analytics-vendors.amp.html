@@ -32,6 +32,7 @@
       margin-left: 10px;
     }
   </style>
+  <script async custom-element="amp-geo" src="https://cdn.ampproject.org/v0/amp-geo-0.1.js"></script>
   <script async custom-element="amp-analytics" src="https://cdn.ampproject.org/v0/amp-analytics-0.1.js"></script>
   <script async custom-element="amp-form" src="https://cdn.ampproject.org/v0/amp-form-0.1.js"></script>
   <style amp-boilerplate>body{-webkit-animation:-amp-start 8s steps(1,end) 0s 1 normal both;-moz-animation:-amp-start 8s steps(1,end) 0s 1 normal both;-ms-animation:-amp-start 8s steps(1,end) 0s 1 normal both;animation:-amp-start 8s steps(1,end) 0s 1 normal both}@-webkit-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-moz-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-ms-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-o-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}</style><noscript><style amp-boilerplate>body{-webkit-animation:none;-moz-animation:none;-ms-animation:none;animation:none}</style></noscript>
@@ -48,6 +49,7 @@
       <option>adobeanalytics</option>
       <option>adobeanalytics_nativeConfig</option>
       <option>alexametrics</option>
+      <option>amplitude</option>
       <option>atinternet</option>
       <option>afsanalytics</option>
       <option>baiduanalytics</option>
@@ -59,6 +61,7 @@
       <option>comscore</option>
       <option>cxense</option>
       <option>dynatrace</option>
+      <option>epica</option>
       <option>euleriananalytics</option>
       <option>facebook-pixel</option>
       <option>gemius</option>
@@ -66,6 +69,8 @@
       <option>ibeatanalytics</option>
       <option>infonline</option>
       <option>iplabel</option>
+      <option>keen</option>
+      <option>kenshoo</option>
       <option>krux</option>
       <option>linkpulse</option>
       <option>lotame</option>
@@ -83,24 +88,36 @@
       <option>oewadirect</option>
       <option>oracleInfinityAnalytics</option>
       <option>parsely</option>
+      <option>permutive</option>
       <option>piano</option>
+      <option>pinpoll</option>
       <option>piStats</option>
+      <option>pressboard</option>
       <option>quantcast</option>
       <option>rakam</option>
+      <option>reppublika</option>
+      <option>retargetly</option>
       <option>segment</option>
       <option>shinystat</option>
       <option>simplereach</option>
       <option>snowplow</option>
+      <option>teaanalytics</option>
+      <option>tealiumcollect</option>
       <option>top100</option>
       <option>topmailru</option>
-      <option>umenganalytics</option>
       <option>treasuredata</option>
+      <option>umenganalytics</option>
+      <option>upscore</option>
+      <option>vponanalytics</option>
+      <option>webengage</option>
       <option>webtrekk</option>
       <option>webtrekk_v2</option>
     </select>
     <input type="submit" value="Go">
   </form>
 </div>
+
+<amp-geo layout="nodisplay"></amp-geo>
 
 <div id="container">
 Container for analytics tags. Positioned far away from top to make sure that doesn't matter.
@@ -205,6 +222,47 @@ For complete documentation and additional examples please see: https://marketing
 </script>
 </amp-analytics>
 <!-- End Alexa tracking -->
+
+<!-- Amplitude example -->
+<amp-analytics type="amplitude" id="amplitude">
+<script type="application/json">
+  {
+    "vars": {
+      "apiKey": "4dafbafda1cb85d0b3d080a95c4e59f9"
+    },
+    "triggers": {
+      "click": {
+        "on": "click",
+        "selector": "#test1",
+        "request": "event",
+        "extraUrlParams": {
+          "event": {
+            "event_type": "click button",
+            "event_properties": {
+              "button id": "test1"
+            }
+          }
+        }
+      },
+      "pageView": {
+        "on": "visible",
+        "request": "event",
+        "extraUrlParams": {
+          "event": {
+            "event_type": "page view",
+            "event_properties": {
+              "page id": "${title}"
+            },
+            "user_properties": {
+              "is amp user": true
+            }
+          }
+        }
+      }
+    }
+  }
+</script>
+</amp-analytics>
 
 <!-- AT Internet tracking -->
 <amp-analytics type="atinternet" id="atinternet">
@@ -385,6 +443,32 @@ For complete documentation and additional examples please see: https://marketing
 </amp-analytics>
 <!-- End dynatrace example -->
 
+<!-- EPICA analytics tracking -->
+<amp-analytics type="epica" id="epica">
+<script type="application/json">
+{
+  "vars": {
+    "writeKey": "13k442kn312",
+    "name": "Page name"
+  },
+  "extraUrlParams": {
+    "properties.category": "Sport"
+  },
+  "triggers": {
+    "click": {
+      "on": "click",
+      "selector": "#test1",
+      "request": "track",
+      "vars": {
+        "event": "Click"
+      }
+    }
+  }
+}
+</script>
+</amp-analytics>
+<!-- End EPICA analytics example -->
+
 <!-- Eulerian Analytics tracking -->
 <amp-analytics type="euleriananalytics" id="euleriananalytics">
 <script type="application/json">
@@ -562,6 +646,64 @@ For complete documentation and additional examples please see: https://marketing
 }
 </script>
 </amp-analytics>
+
+<!-- Keen Analytics tracking -->
+<amp-analytics type="keen" id="keen">
+<script type="application/json">
+{
+  "vars": {
+    "projectId": "YOUR_PROJECT_ID",
+    "writeKey": "YOUR_WRITE_KEY"
+  },
+  "extraUrlParams": {
+    "exampleParam": "some general param value"
+  },
+  "triggers": {
+    "trackPageview": {
+      "on": "visible",
+      "request": "pageview",
+      "extraUrlParams": {
+        "exampleParamForPageviews": "some specific value 123"
+      }
+    },
+    "trackClickOnTestBtn1": {
+      "on": "click",
+      "selector": "#testBtn1",
+      "request": "click",
+      "extraUrlParams": {
+        "exampleParamForClicks": "some click value"
+      }
+    },
+    "trackConversion": {
+      "on": "click",
+      "selector": "#submitOrder",
+      "request": "custom",
+      "vars": {
+        "collection": "conversions"
+      },
+      "extraUrlParams": {
+        "exampleParamForConversion": "some conversion value"
+      }
+    }
+  }
+}
+</script>
+</amp-analytics>
+<!-- End Keen Analytics tracking -->
+
+<!-- Kenshoo example -->
+<amp-analytics type="kenshoo" id="kenshoo">
+  <script type="application/json">
+    {
+      "vars": {
+        "tid": "KT-XXXXX-XXX",
+        "userId": "<USER_ID>"
+      }
+    }
+  </script>
+</amp-analytics>
+<!-- End Kenshoo example -->
+
 <!-- Krux tracking. Ensure you replace KMnP7vhh with your configuration ID. -->
 <amp-analytics type="krux" id="krux" config="https://cdn.krxd.net/controltag/amp/KMnP7vhh.json">
 <script type="application/json">
@@ -899,6 +1041,24 @@ For complete documentation and additional examples please see: https://marketing
 </script>
 </amp-analytics>
 
+<!-- Permutive example -->
+<amp-analytics type="permutive" id="permutive">
+<script type="application/json">
+  {
+    "vars": {
+      "namespace": "YOUR_PERMUTIVE_AMP_NAMESPACE",
+      "key": "YOUR_PERMUTIVE_PUBLIC_API_KEY"
+    },
+    "extraUrlParams": {
+      "properties.article.id": "1234",
+      "properties'article.title": "xyz",
+      "properties.article.tags!list": "tag1,tag2,tag3"
+    }
+  }
+</script>
+</amp-analytics>
+<!-- End Permutive example -->
+
 <!-- Start Piano example -->
 <amp-analytics type="piano" id="piano">
 <script type="application/json">
@@ -921,6 +1081,18 @@ For complete documentation and additional examples please see: https://marketing
 </amp-analytics>
 <!-- End Piano example -->
 
+<!-- Start Pinpoll example -->
+<amp-analytics type="pinpoll" id="pinpoll">
+  <script type="application/json">
+  {
+    "vars": {
+      "version": "v1"
+    }
+  }
+  </script>
+  </amp-analytics>
+  <!-- End Pinpoll example -->
+
 <!-- piStats example tracking -->
 <amp-analytics type="piStats" id="piStats">
   <script type="application/json">
@@ -935,6 +1107,26 @@ For complete documentation and additional examples please see: https://marketing
 </amp-analytics>
 <!-- End piStats example -->
 
+<!-- Pressboard tracking. Ensure you replace &media value with a valid media-id, and &ref value with an html-encoded URL of a pressboard sponsored story related to the used media-id -->
+<amp-analytics type="pressboard" id="pressboard" config="https://adserver.pressboard.ca/amp/config?media=5&ref=http%3A%2F%2Fwww.pressboardmedia.com%2Fnative-advertising-advice-from-the-co-founder-of-stackadapt%2F">
+  <script type="application/json">
+  {
+    "vars": {
+      "mediaId": "",
+      "campaignId": "",
+      "storyRequestId": "",
+      "geoNameId": "",
+      "country": "",
+      "region": "",
+      "city": "",
+      "dbInstance": "",
+      "timeZoneOffset": ""
+    }
+  }
+  </script>
+  </amp-analytics>
+<!-- End Pressboard example -->
+
 <!-- Quantcast tracking -->
 <amp-analytics type="quantcast" id="quantcast">
 <script type="application/json">
@@ -947,6 +1139,45 @@ For complete documentation and additional examples please see: https://marketing
 </script>
 </amp-analytics>
 <!-- End Quantcast example -->
+
+<!-- Reppublika example -->
+<amp-analytics type="reppublika" id="reppublika">
+<script type="application/json">
+{
+  "vars": {
+    "code": "XX-XXXXX",
+    "type": "1",
+    "service": "YY-YYYYY",
+    "category": "category1",
+    "channel": "channel1",
+    "device": "mobile"
+  },
+  "triggers": {
+    "trackPageview": {
+        "on": "visible",
+        "request": "pageview"
+      }
+    }
+}
+</script>
+</amp-analytics>
+<!-- End Reppublika example -->
+
+<!-- Retargetly example -->
+<amp-analytics data-credentials="include" type="retargetly" id="retargetly">
+<script type="application/json">
+{
+    "vars": {
+        "accountId": "107",
+        "sourceId": "0"
+    },
+    "extraUrlParams": {
+        "tags": "this,is,just,an,example"
+    }
+}
+</script>
+</amp-analytics>
+<!-- End Retargetly example -->
 
 <!-- Segment analytics tracking -->
 <amp-analytics type="segment" id="segment">
@@ -1041,6 +1272,88 @@ For complete documentation and additional examples please see: https://marketing
 </script>
 </amp-analytics>
 <!-- End Snowplow Analytics example -->
+
+<!-- TEA Analytics Example
+    Ensure you replace app_id with your appId.
+    Ensure you replace channel with correct value.
+ -->
+<amp-analytics type="teaanalytics" id="teaanalytics">
+  <script type="application/json">
+    {
+      "vars": {
+        "app_id": "APP_ID",
+        "channel": "example.com",
+        "debug": 0
+      },
+      "triggers": {
+        "pageview": {
+          "on": "visible",
+          "request": "pageview",
+          "extraUrlParams": {
+          }
+        },
+        "clickBtn": {
+          "on": "click",
+          "selector": "#test1",
+          "request": "event",
+          "extraUrlParams": {
+            "event": "click_btn",
+            "event.params.from":"button",
+            "event.params.btn_title": "${title}"
+          }
+        }
+      }
+    }
+  </script>
+</amp-analytics>
+<!-- End TEA Analytics example -->
+
+<!-- Tealium Collect example -->
+<amp-analytics type="tealiumcollect" id="tealiumcollect">
+<script type="application/json">
+{
+  "vars": {
+    "account": "myaccount",
+    "profile": "myprofile",
+    "datasource": "amp123"
+  },
+  "triggers": {
+    "defaultPageview": {
+      "on": "visible",
+      "request": "pageview",
+      "vars": {
+        "tealium_event": "screen_view"
+      }
+    },
+    "clickOnTest1Trigger": {
+      "on": "click",
+      "selector": "#test1",
+      "request": "event",
+      "vars": {
+        "tealium_event": "clicked_test1"
+      },
+      "extraUrlParams": {
+        "event_category": "examples",
+        "event_action": "clicked-test1"
+      }
+    },
+    "clickOnTopTrigger": {
+      "on": "click",
+      "selector": "#top",
+      "request": "event",
+      "vars": {
+        "tealium_event": "clicked_top"
+      },
+      "extraUrlParams": {
+        "event_category": "examples",
+        "event_action": "clicked-header"
+      }
+    }
+  }
+}
+</script>
+</amp-analytics>
+<!-- End Tealium Collect example -->
 
 <!-- Top100.rambler.ru example -->
 <amp-analytics type="top100" id="top100" config="https://kraken.rambler.ru/amp/config.json">
@@ -1198,7 +1511,30 @@ For complete documentation and additional examples please see: https://marketing
 </script>
 </amp-analytics>
 <!-- End Ibeat Analytics example -->
-
+<!--UpScore Analytics Example -->
+<amp-analytics type="upscore" id="upscore">
+  <script type="application/json">
+  {
+    "vars": {
+      "object_id": "foo",
+      "object_type":"bar",
+      "section":"sport",
+      "author":"john suran",
+      "creator":"john suran",
+      "domain":"clientDomain",
+      "pubdate":"2015-01-01 00:00:00"
+    },
+    "triggers": {
+      "event": {
+        "on": "click",
+        "selector": "#test1",
+        "request": "finalbeat"
+      }
+    }
+  }
+  </script>
+</amp-analytics>
+<!-- End Upscore Analytics example -->
 <!-- Umeng+ Analytics Example -->
 <amp-analytics type="umenganalytics" id="umenganalytics">
   <script type="application/json">
@@ -1220,6 +1556,74 @@ For complete documentation and additional examples please see: https://marketing
   </script>
 </amp-analytics>
 <!-- End Umeng Analytics example -->
+<!-- Vpon Analytics example -->
+<amp-analytics type="vponanalytics" id="vponanalytics">
+  <script type="application/json">
+    {
+      "vars": {
+        "licence_key": "xxxxxxxxxxxxxxx",
+        "category": "web"
+      },
+      "triggers": {
+        "custom_event": {
+         "on": "click",
+         "selector": ".vp_search",
+         "request": "event",
+         "vars": {
+           "ev_name": "search",
+           "payload": "{\"keyword\":\"裙子\"}"
+         }
+        },
+        "element_Interact": {
+         "on": "click",
+         "selector": ".vp_track_0",
+         "request": "elementInteract",
+         "vars": {
+           "action": "click",
+           "label": "ev_0_search-flight"
+         }
+        },
+        "scroll": {
+          "on": "scroll",
+          "selector": "body",
+          "request": "scroll",
+          "vars": {
+            "action": "scroll_${verticalScrollBoundary}"
+          },
+          "scrollSpec": {
+            "verticalBoundaries": [5,30,50,70,95]
+          }
+        }
+      }
+    }
+  </script>
+</amp-analytics>
+<!-- Vpon Analytics example -->
+
+<!-- start WebEngage Analytics example -->
+<amp-analytics type="webengage" id="webengage" >
+  <script type="application/json">
+    {
+      "vars": {
+        "licenseCode": "in~~716809b6",
+        "region": "in"
+      },
+      "requests": {
+        "weClick": {
+          "baseUrl": "${base}&eventName=Element Clicked&element=test1"
+        }
+      },
+      "triggers": {
+        "weClickTrigger": {
+          "on": "click",
+          "selector": "#test1",
+          "request": "weClick"
+        }
+      }
+    }
+  </script>
+</amp-analytics>
+<!-- end WebEngage Analytics example -->
 </div>
 
 <div class="logo"></div>
