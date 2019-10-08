@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import {jsonConfiguration} from '../src/json';
+
 /**
  * @typedef {{
  *   prefetch: (string|undefined),
@@ -61,9 +63,9 @@ let AdNetworkConfigDef;
  *   fullWidthHeightRatio: number
  * }
  *
- * @const {!Object<string, !AdNetworkConfigDef>}}
+ * @const {!Object<string, !JsonObject>}
  */
-export const adConfig = {
+const adConfig = jsonConfiguration({
   '_ping_': {
     renderStartImplemented: true,
     clientIdScope: '_PING_',
@@ -121,6 +123,10 @@ export const adConfig = {
 
   'adgeneration': {
     prefetch: 'https://i.socdm.com/sdk/js/adg-script-loader.js',
+  },
+
+  'adglare': {
+    renderStartImplemented: true,
   },
 
   'adhese': {
@@ -191,6 +197,11 @@ export const adConfig = {
     preconnect: 'https://ad.ad-stir.com',
   },
 
+  'adstyle': {
+    prefetch: 'https://widgets.ad.style/amp.js',
+    preconnect: ['https://w.ad.style'],
+  },
+
   'adtech': {
     prefetch: 'https://s.aolcdn.com/os/ads/adsWrapper3.js',
     preconnect: ['https://mads.at.atwola.com', 'https://aka-cdn.adtechus.com'],
@@ -236,7 +247,7 @@ export const adConfig = {
 
   'adyoulike': {
     consentHandlingOverride: true,
-    prefetch: 'https://pixels.omnitagjs.com/amp.js',
+    prefetch: 'https://fo-static.omnitagjs.com/amp.js',
     renderStartImplemented: true,
   },
 
@@ -305,6 +316,11 @@ export const adConfig = {
   },
 
   'bidtellect': {},
+
+  'blade': {
+    prefetch: 'https://sdk.streamrail.com/blade/sr.blade.js',
+    renderStartImplemented: true,
+  },
 
   'brainy': {},
 
@@ -802,6 +818,11 @@ export const adConfig = {
     renderStartImplemented: true,
   },
 
+  'puffnetwork': {
+    prefetch: 'https://static.puffnetwork.com/amp_ad.js',
+    renderStartImplemented: true,
+  },
+
   'pulsepoint': {
     prefetch: 'https://ads.contextweb.com/TagPublish/getjs.static.js',
     preconnect: 'https://tag.contextweb.com',
@@ -819,6 +840,10 @@ export const adConfig = {
   },
 
   'rbinfox': {
+    renderStartImplemented: true,
+  },
+
+  'readmo': {
     renderStartImplemented: true,
   },
 
@@ -869,11 +894,26 @@ export const adConfig = {
     renderStartImplemented: true,
   },
 
+  'seedingalliance': {},
+
   'sekindo': {
     renderStartImplemented: true,
   },
 
   'sharethrough': {
+    renderStartImplemented: true,
+  },
+
+  'shemedia': {
+    prefetch: [
+      'https://securepubads.g.doubleclick.net/tag/js/gpt.js',
+      'https://ads.shemedia.com/static/amp.js',
+    ],
+    preconnect: [
+      'https://partner.googleadservices.com',
+      'https://tpc.googlesyndication.com',
+      'https://ads.blogherads.com',
+    ],
     renderStartImplemented: true,
   },
 
@@ -906,6 +946,12 @@ export const adConfig = {
     renderStartImplemented: true,
   },
 
+  'smilewanted': {
+    prefetch: 'https://prebid.smilewanted.com/amp/amp.js',
+    preconnect: 'https://static.smilewanted.com',
+    renderStartImplemented: true,
+  },
+
   'sogouad': {
     prefetch: 'https://theta.sogoucdn.com/wap/js/aw.js',
     renderStartImplemented: true,
@@ -932,11 +978,6 @@ export const adConfig = {
 
   'spotx': {
     preconnect: 'https://js.spotx.tv',
-    renderStartImplemented: true,
-  },
-
-  'streamrail': {
-    prefetch: 'https://sdk.streamrail.com/blade/sr.blade.js',
     renderStartImplemented: true,
   },
 
@@ -1079,6 +1120,10 @@ export const adConfig = {
     preconnect: 'https://yads.yahoo.co.jp',
   },
 
+  'yahoonativeads': {
+    renderStartImplemented: true,
+  },
+
   'yandex': {
     prefetch: 'https://yastatic.net/partner-code/loaders/context_amp.js',
     renderStartImplemented: true,
@@ -1137,4 +1182,6 @@ export const adConfig = {
     prefetch: 'https://dup.baidustatic.com/js/dm.js',
     renderStartImplemented: true,
   },
-};
+});
+
+export {adConfig};

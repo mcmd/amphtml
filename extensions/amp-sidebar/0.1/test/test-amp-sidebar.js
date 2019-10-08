@@ -19,7 +19,7 @@ import * as lolex from 'lolex';
 import {Keys} from '../../../../src/utils/key-codes';
 import {Services} from '../../../../src/services';
 import {assertScreenReaderElement} from '../../../../testing/test-helper';
-import {clearModalStack} from '../../../../src/modal';
+import {clearModalStack, getModalStackLength} from '../../../../src/modal';
 
 // Represents the correct value of KeyboardEvent.which for the Escape key
 const KEYBOARD_EVENT_WHICH_ESCAPE = 27;
@@ -235,7 +235,7 @@ describes.realWin(
         impl.open_();
         await impl.mutateElement(() => {});
         expect(sidebarElement.hasAttribute('open')).to.be.true;
-        expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+        expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
         expect(sidebarElement.getAttribute('role')).to.equal('menu');
 
         expect(historyPushSpy).to.be.calledOnce;
@@ -255,6 +255,26 @@ describes.realWin(
         expect(owners.scheduleLayout).to.be.calledOnce;
         expect(historyPushSpy).to.be.calledOnce;
         expect(historyPopSpy).to.have.not.been.called;
+      });
+
+      it('ignore repeated calls to open', async () => {
+        const sidebarElement = await getAmpSidebar({'stubHistory': true});
+        const impl = sidebarElement.implementation_;
+
+        impl.open_();
+        expect(getModalStackLength()).to.equal(1);
+        impl.open_();
+        expect(getModalStackLength()).to.equal(1);
+      });
+
+      it('ignore repeated calls to close', async () => {
+        const sidebarElement = await getAmpSidebar({'stubHistory': true});
+        const impl = sidebarElement.implementation_;
+
+        impl.open_();
+        impl.close_();
+        // If this was not ignored, it would throw an error.
+        impl.close_();
       });
 
       it('should close sidebar on button click', async () => {
@@ -288,7 +308,7 @@ describes.realWin(
         impl.openOrCloseTimeOut_ = 10;
         impl.close_();
         expect(sidebarElement.hasAttribute('open')).to.be.false;
-        expect(sidebarElement.getAttribute('aria-hidden')).to.equal('true');
+        expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
         clock.tick(600);
         expect(sidebarElement).to.have.display('none');
         expect(owners.schedulePause).to.be.calledOnce;
@@ -316,13 +336,13 @@ describes.realWin(
         owners.schedulePause = sandbox.spy();
 
         expect(sidebarElement.hasAttribute('open')).to.be.false;
-        expect(sidebarElement.getAttribute('aria-hidden')).to.equal('true');
+        expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
         expect(sidebarElement.getAttribute('role')).to.equal('menu');
         expect(doc.activeElement).to.not.equal(screenReaderCloseButton);
         impl.toggle_();
         await impl.mutateElement(() => {});
         expect(sidebarElement.hasAttribute('open')).to.be.true;
-        expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+        expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
         clock.tick(600);
         expect(doc.activeElement).to.equal(screenReaderCloseButton);
         expect(sidebarElement).to.not.have.display('none');
@@ -330,7 +350,7 @@ describes.realWin(
         impl.toggle_();
         await impl.mutateElement(() => {});
         expect(sidebarElement.hasAttribute('open')).to.be.false;
-        expect(sidebarElement.getAttribute('aria-hidden')).to.equal('true');
+        expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
         clock.tick(600);
         expect(sidebarElement).to.have.display('none');
         expect(owners.schedulePause).to.be.calledOnce;
@@ -348,7 +368,7 @@ describes.realWin(
           expect(sidebarElement.hasAttribute('open')).to.be.false;
           impl.open_();
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           const eventObj = doc.createEventObject
             ? doc.createEventObject()
             : doc.createEvent('Events');
@@ -362,7 +382,7 @@ describes.realWin(
             ? el.dispatchEvent(eventObj)
             : el.fireEvent('onkeydown', eventObj);
           expect(sidebarElement.hasAttribute('open')).to.be.false;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('true');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           clock.tick(600);
           expect(sidebarElement).to.have.display('none');
           expect(owners.schedulePause).to.be.calledOnce;
@@ -379,27 +399,27 @@ describes.realWin(
           owners.schedulePause = sandbox.spy();
           owners.scheduleResume = sandbox.spy();
 
-          expect(impl.isOpen_()).to.be.false;
+          expect(sidebarElement.hasAttribute('open')).to.be.false;
           clock.tick(600);
           expect(owners.schedulePause).to.have.not.been.called;
           expect(owners.scheduleResume).to.have.not.been.called;
           impl.toggle_();
-          expect(impl.isOpen_()).to.be.true;
+          expect(sidebarElement.hasAttribute('open')).to.be.true;
           clock.tick(600);
           expect(owners.schedulePause).to.have.not.been.called;
           expect(owners.scheduleResume).to.be.calledOnce;
           impl.toggle_();
-          expect(impl.isOpen_()).to.be.false;
+          expect(sidebarElement.hasAttribute('open')).to.be.false;
           clock.tick(600);
           expect(owners.schedulePause).to.be.calledOnce;
           expect(owners.scheduleResume).to.be.calledOnce;
           impl.toggle_();
-          expect(impl.isOpen_()).to.be.true;
+          expect(sidebarElement.hasAttribute('open')).to.be.true;
           clock.tick(600);
           expect(owners.schedulePause).to.be.calledOnce;
           expect(owners.scheduleResume).to.have.callCount(2);
           impl.toggle_();
-          expect(impl.isOpen_()).to.be.false;
+          expect(sidebarElement.hasAttribute('open')).to.be.false;
           clock.tick(600);
           expect(owners.schedulePause).to.have.callCount(2);
           expect(owners.scheduleResume).to.have.callCount(2);
@@ -455,7 +475,7 @@ describes.realWin(
           expect(sidebarElement.hasAttribute('open')).to.be.false;
           impl.open_();
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           const eventObj = doc.createEventObject
             ? doc.createEventObject()
             : doc.createEvent('Events');
@@ -473,7 +493,7 @@ describes.realWin(
             ? anchor.dispatchEvent(eventObj)
             : anchor.fireEvent('onkeydown', eventObj);
           expect(sidebarElement.hasAttribute('open')).to.be.false;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('true');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           clock.tick(600);
           expect(sidebarElement).to.have.display('none');
           expect(owners.schedulePause).to.be.calledOnce;
@@ -492,7 +512,7 @@ describes.realWin(
           expect(sidebarElement.hasAttribute('open')).to.be.false;
           impl.open_();
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           const eventObj = doc.createEventObject
             ? doc.createEventObject()
             : doc.createEvent('Events');
@@ -513,7 +533,7 @@ describes.realWin(
             ? anchor.dispatchEvent(eventObj)
             : anchor.fireEvent('onkeydown', eventObj);
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           expect(sidebarElement).to.not.have.display('');
           expect(owners.schedulePause).to.have.not.been.called;
         });
@@ -532,7 +552,7 @@ describes.realWin(
           expect(sidebarElement.hasAttribute('open')).to.be.false;
           impl.open_();
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           const eventObj = doc.createEventObject
             ? doc.createEventObject()
             : doc.createEvent('Events');
@@ -554,7 +574,7 @@ describes.realWin(
             ? anchor.dispatchEvent(eventObj)
             : anchor.fireEvent('onkeydown', eventObj);
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           expect(sidebarElement).to.not.have.display('');
           expect(owners.schedulePause).to.have.not.been.called;
         });
@@ -572,7 +592,7 @@ describes.realWin(
           expect(sidebarElement.hasAttribute('open')).to.be.false;
           impl.open_();
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           const eventObj = doc.createEventObject
             ? doc.createEventObject()
             : doc.createEvent('Events');
@@ -583,7 +603,7 @@ describes.realWin(
             ? li.dispatchEvent(eventObj)
             : li.fireEvent('onkeydown', eventObj);
           expect(sidebarElement.hasAttribute('open')).to.be.true;
-          expect(sidebarElement.getAttribute('aria-hidden')).to.equal('false');
+          expect(sidebarElement.hasAttribute('aria-hidden')).to.be.false;
           expect(sidebarElement).to.not.have.display('');
           expect(owners.schedulePause).to.have.not.been.called;
         });
